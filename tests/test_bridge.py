@@ -435,3 +435,23 @@ def test_second_bridge_for_the_same_thread_exits_and_leaves_the_first(bridge, is
     assert proc.poll() is None
     assert json.loads((isolated_env["home"] / "bridges" / f"{THREAD}.json").read_text())["pid"] == state["pid"]
     assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["ok"] is True
+
+
+def test_idle_notice_waits_until_every_queued_request_is_answered(bridge, claude):
+    _, state = bridge
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "first", "m-a")], expect_reply=False)
+    wait_pending(state, 1)
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "second", "m-b")], expect_reply=False)
+    wait_pending(state, 2)
+    talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-2")], expect_reply=False)
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-a"}], expect_reply=False)
+    wait_status(state, "busy")
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "A"}], expect_reply=False)
+    frames = claude.wait_for_frames(2)
+    assert [f.get("action") for f in frames if f.get("type") == "control"] == []  # answer A only, no notice yet
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-b"}], expect_reply=False)
+    wait_status(state, "busy")
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "B"}], expect_reply=False)
+    frames = claude.wait_for_frames(6)
+    notices = [f for f in frames if f.get("action") == "peer_idle_notice"]
+    assert len(notices) == 1 and notices[0]["detail"] == "B"

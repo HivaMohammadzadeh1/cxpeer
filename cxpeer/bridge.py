@@ -265,6 +265,11 @@ class Bridge:
             LOG.warning("request %s from %s expired unanswered", request.msg_id, request.from_name)
             if request.reply_sock is not None:
                 self._try_send(request.reply_sock, UNANSWERED_NOTE.format(name=self.name, msg_id=request.msg_id))
+        if stale:
+            with self._lock:
+                drained = self.status == "idle" and self.active is None and not self.pending
+            if drained:
+                self._fire_idle_notices("idle", None)
 
     def _write_state(self) -> None:
         bridges_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -433,7 +438,12 @@ class Bridge:
             request = self.pending.pop(self.active, None) if self.active else None
             self.active = None
         answer = frame.get("last_assistant_message")
-        self._fire_idle_notices("idle", answer if isinstance(answer, str) else None)
+        with self._lock:
+            still_pending = len(self.pending)
+        if still_pending:
+            LOG.info("holding idle notices: %d request(s) still queued", still_pending)
+        else:
+            self._fire_idle_notices("idle", answer if isinstance(answer, str) else None)
         if request is None:
             LOG.info("turn ended; no peer request to answer")
             return None
