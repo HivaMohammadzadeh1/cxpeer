@@ -21,6 +21,7 @@ class FakeBridge:
     """A UDS server that accepts one connection, reads to EOF, and stores the decoded lines."""
 
     def __init__(self, sock_path: Path, token: str):
+        self.sock = str(sock_path)
         self.token = token
         self.lines: list[dict] = []
         self._srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -56,12 +57,17 @@ def _write_state(sid: str, **fields) -> Path:
 
 
 @pytest.fixture
-def bridge(isolated_env) -> FakeBridge:
-    sock = isolated_env["socks"] / "bridge.sock"
-    fb = FakeBridge(sock, token="tok-bridge")
-    _write_state(SID, pid=os.getpid(), sock=str(sock), token="tok-bridge", name="codex-x-11",
+def fake_bridge(isolated_env) -> FakeBridge:
+    """A listening fake bridge with no state file yet."""
+    return FakeBridge(isolated_env["socks"] / "bridge.sock", token="tok-bridge")
+
+
+@pytest.fixture
+def bridge(fake_bridge) -> FakeBridge:
+    """The fake bridge plus the state file the hooks use to find it."""
+    _write_state(SID, pid=os.getpid(), sock=fake_bridge.sock, token=fake_bridge.token, name="codex-x-11",
                  cwd="/tmp", thread=SID, started=0)
-    return fb
+    return fake_bridge
 
 
 def test_user_prompt_submit_sends_turn_started_with_msg_id(bridge, capsys):
@@ -104,21 +110,15 @@ def test_session_end_sends_shutdown(bridge):
     assert lines[1] == {"type": "cxpeer.shutdown"}
 
 
-def test_missing_bridge_is_logged_and_still_returns_zero(isolated_env, capsys):
-    rc = hooks.run("stop", {"session_id": "no-such-thread", "last_assistant_message": "x"})
-    assert rc == 0
-    assert capsys.readouterr().out == ""
-    log = (paths.logs_dir() / "hooks.log").read_text()
-    assert "no-such-thread" in log
-
-
-def test_dead_bridge_socket_is_logged_and_still_returns_zero(isolated_env, capsys):
+def test_dead_bridge_socket_is_logged_without_respawn(isolated_env, popen, capsys):
+    """Live pid but vanished socket: not our liveness signal, so no respawn, just a log line."""
     _write_state(SID, pid=os.getpid(), sock=str(isolated_env["socks"] / "gone.sock"), token="t",
                  name="n", cwd="/tmp", thread=SID, started=0)
     rc = hooks.run("stop", {"session_id": SID, "last_assistant_message": "x"})
     assert rc == 0
     assert capsys.readouterr().out == ""
     assert "stop" in (paths.logs_dir() / "hooks.log").read_text()
+    assert popen.calls == []
 
 
 def test_unknown_event_returns_zero_silently(isolated_env, capsys):
@@ -133,19 +133,80 @@ def test_run_returns_zero_even_when_payload_is_garbage(isolated_env, capsys):
 
 class FakePopen:
     calls: list[tuple[list[str], dict]] = []
+    on_spawn = None  # optional callable(argv) run at construction, e.g. to mimic the bridge coming up
 
     def __init__(self, argv, **kw):
         FakePopen.calls.append((list(argv), kw))
         self.pid = 4242
+        if FakePopen.on_spawn:
+            FakePopen.on_spawn(list(argv))
 
 
 @pytest.fixture
 def popen(monkeypatch):
-    """Capture the bridge spawn; stub ps so subprocess.run is never reached."""
+    """Capture the bridge spawn; stub ps and sleeps so no subprocess or wall-clock wait happens."""
     FakePopen.calls = []
+    FakePopen.on_spawn = None
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
     monkeypatch.setattr(hooks, "ps_lookup", lambda pid: None)
+    monkeypatch.setattr(hooks, "_sleep", lambda s: None)
+    monkeypatch.delenv("CXPEER_PEER_NAME", raising=False)
     return FakePopen
+
+
+@pytest.fixture
+def respawn_popen(popen, fake_bridge):
+    """Popen stand-in that acts like a bridge coming up: writes the state file for the thread in argv."""
+    def came_up(argv):
+        thread = argv[argv.index("--thread") + 1]
+        _write_state(thread, pid=os.getpid(), sock=fake_bridge.sock, token=fake_bridge.token,
+                     name="codex-x-22", cwd="/tmp", thread=thread, started=0)
+    popen.on_spawn = staticmethod(came_up)
+    return popen
+
+
+def test_send_respawns_bridge_when_no_state_exists(isolated_env, fake_bridge, respawn_popen, capsys):
+    rc = hooks.run("stop", {"session_id": SID, "cwd": "/tmp", "last_assistant_message": "done"})
+    assert rc == 0
+    assert capsys.readouterr().out == ""
+    assert len(respawn_popen.calls) == 1
+    argv = respawn_popen.calls[0][0]
+    assert argv[argv.index("--thread") + 1] == SID and argv[argv.index("--cwd") + 1] == "/tmp"
+    lines = fake_bridge.wait()
+    assert lines[0] == {"type": "auth", "token": "tok-bridge"}
+    assert lines[1]["type"] == "cxpeer.turn_ended" and lines[1]["last_assistant_message"] == "done"
+    assert "respawned bridge" in (paths.logs_dir() / "hooks.log").read_text()
+
+
+def test_send_respawns_bridge_when_recorded_pid_is_dead(isolated_env, fake_bridge, respawn_popen):
+    _write_state(SID, pid=2**22 - 1, sock="/gone.sock", token="old", name="n", cwd="/tmp", thread=SID, started=0)
+    hooks.run("user-prompt-submit", {"session_id": SID, "cwd": "/tmp", "prompt": "x"})
+    assert len(respawn_popen.calls) == 1
+    assert fake_bridge.wait()[1]["type"] == "cxpeer.turn_started"
+
+
+def test_send_gives_up_quietly_when_respawned_bridge_never_appears(isolated_env, popen, capsys):
+    rc = hooks.run("stop", {"session_id": "no-such-thread", "cwd": "/tmp", "last_assistant_message": "x"})
+    assert rc == 0
+    assert capsys.readouterr().out == ""
+    assert len(popen.calls) == 1
+    log = (paths.logs_dir() / "hooks.log").read_text()
+    assert "respawned bridge" in log and "no-such-thread" in log
+
+
+def test_session_start_passes_peer_name_from_env(isolated_env, popen, monkeypatch):
+    monkeypatch.setenv("CXPEER_PEER_NAME", "reviewer.v2")
+    hooks.run("session-start", {"session_id": SID, "cwd": "/tmp"})
+    argv = popen.calls[0][0]
+    assert argv[argv.index("--name") + 1] == "reviewer.v2"
+
+
+@pytest.mark.parametrize("bad", ["../x", "a/b", "has space", "", "x" * 41, "semi;colon"])
+def test_session_start_ignores_invalid_peer_name(isolated_env, popen, monkeypatch, bad):
+    monkeypatch.setenv("CXPEER_PEER_NAME", bad)
+    hooks.run("session-start", {"session_id": SID, "cwd": "/tmp"})
+    argv = popen.calls[0][0]
+    assert "--name" not in argv
 
 
 def test_session_start_spawns_detached_bridge(isolated_env, popen, capsys):
