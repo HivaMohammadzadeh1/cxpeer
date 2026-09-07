@@ -10,13 +10,14 @@ Codex sessions as peers in Claude Code's cross-session messaging
 </h3>
 
 <p align="center">
-| <a href="#getting-started"><b>Getting started</b></a> | <a href="#how-it-works"><b>How it works</b></a> | <a href="demo/README.md"><b>Demo</b></a> | <a href="docs/superpowers/specs/2026-09-07-cxpeer-design.md"><b>Design notes</b></a> | <a href="https://github.com/HivaMohammadzadeh1/cxpeer/issues"><b>Issues</b></a> |
+| <a href="#getting-started"><b>Getting started</b></a> | <a href="#how-it-works"><b>How it works</b></a> | <a href="docs/user-journey.md"><b>User journey</b></a> | <a href="demo/README.md"><b>Demo</b></a> | <a href="docs/superpowers/specs/2026-09-07-cxpeer-design.md"><b>Design notes</b></a> | <a href="https://github.com/HivaMohammadzadeh1/cxpeer/issues"><b>Issues</b></a> |
 </p>
 
 ---
 
 ## Latest news
 
+- [2026-09-07] A recorded [user journey](docs/user-journey.md): install check, spawn a Codex peer, give it a task, have it message back from inside its sandbox. 41 seconds end to end.
 - [2026-09-07] v0.2.0: `cxpeer doctor`, `cxpeer spawn --wait` with peer names, idle notices (`notify_when_idle`), a self-healing bridge, Linux CI, and a runnable [demo](demo/README.md).
 - [2026-09-07] v0.1.0: first working version. A Claude Code session messaged a live Codex TUI and got the answer back in 8 seconds.
 
@@ -196,7 +197,8 @@ The fixtures in `tests/conftest.py` point every path at a temp dir and swap `cod
 a script that records its arguments, so nothing touches your real setup. The bridge
 tests run it as a subprocess and talk to it over its socket. `scripts/e2e.sh [DIR]`
 starts a real Codex in tmux and prints the peer name; `scripts/e2e.sh down` kills it.
-`python demo/demo.py` runs the whole loop against a real Codex without a Claude session.
+`python demo/demo.py` runs the whole loop against a real Codex without a Claude session, and
+`python demo/journey.py --record docs/user-journey.md` records the narrated version.
 
 Issues and pull requests are welcome. Keep changes small and add a test for the failure
 path, not only the happy one.

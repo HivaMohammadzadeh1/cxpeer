@@ -125,7 +125,7 @@ def _json_line(frame: dict) -> str:
 
 
 def _wire_command(sock_path: str, token: str, first: dict, second: dict | None = None) -> str:
-    auth = {"type": "auth", "token": token}
+    auth = {"type": "auth", "token": "<peer token>"}  # the real token is sent, never printed
     lines = [
         f"connection 1 -> {sock_path}",
         _json_line(auth),
