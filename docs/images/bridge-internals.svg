@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="470" color="#171B1F" viewBox="0 0 960 470" role="img" aria-label="Bridge internals: the lifecycle thread binds the socket, registers, and runs the accept loop; each connection gets a thread that checks the auth line and dispatches frames to handlers; handlers read and write the pending table, the active pointer, and the registry status.">
+      <defs>
+        <marker id="ba" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+        <marker id="bx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0B7A63"/></marker>
+        <marker id="bf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#B86E00"/></marker>
+      </defs><rect x="0" y="0" width="960" height="470" fill="#FFFFFF"/>
+      <g font-family="JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="currentColor">
+        <text x="30" y="24" font-size="11" letter-spacing="1.5" fill="#5F6A73">MAIN THREAD · LIFECYCLE</text>
+        <text x="360" y="24" font-size="11" letter-spacing="1.5" fill="#5F6A73">ONE THREAD PER CONNECTION</text>
+        <text x="720" y="24" font-size="11" letter-spacing="1.5" fill="#5F6A73">STATE (under one lock)</text>
+
+        <!-- lifecycle column -->
+        <g stroke="currentColor" stroke-width="1.2" fill="#FFFFFF">
+          <rect x="30" y="40" width="270" height="74" rx="3"/>
+          <rect x="30" y="140" width="270" height="92" rx="3"/>
+          <rect x="30" y="258" width="270" height="74" rx="3"/>
+        </g>
+        <text x="42" y="60" font-weight="600">start()</text>
+        <text x="42" y="78" font-size="11">bind /tmp/cc-socks/&lt;pid&gt;.sock · 0600</text>
+        <text x="42" y="94" font-size="11">register · write the bridge state file</text>
+        <text x="42" y="108" font-size="10.5" fill="#5F6A73">token: 32 hex, kept in key + state</text>
+        <text x="42" y="160" font-weight="600">serve_forever()</text>
+        <text x="42" y="178" font-size="11">accept() with a 1 s timeout</text>
+        <text x="42" y="194" font-size="11">every 4 s: os.kill(watch_pid, 0)</text>
+        <text x="42" y="210" font-size="11">stop: shutdown · SIGTERM · codex gone</text>
+        <text x="42" y="226" font-size="10.5" fill="#5F6A73">thread per accepted connection ↘</text>
+        <text x="42" y="278" font-weight="600">cleanup()</text>
+        <text x="42" y="296" font-size="11">deregister · rm state · unlink sock</text>
+        <text x="42" y="312" font-size="11">every step runs; failures logged</text>
+        <path d="M165 114 L165 140" stroke="currentColor" stroke-width="1.2" marker-end="url(#ba)" fill="none"/>
+        <path d="M165 232 L165 258" stroke="currentColor" stroke-width="1.2" marker-end="url(#ba)" fill="none"/>
+
+        <!-- connection column -->
+        <g stroke="currentColor" stroke-width="1.2" fill="#FFFFFF">
+          <rect x="360" y="40" width="300" height="56" rx="3"/>
+          <rect x="360" y="120" width="300" height="56" rx="3"/>
+          <rect x="360" y="200" width="300" height="230" rx="3"/>
+        </g>
+        <text x="372" y="60" font-weight="600">first line must be auth</text>
+        <text x="372" y="78" font-size="11">auth frame · compare_digest · else drop</text>
+        <text x="372" y="140" font-weight="600">then one JSON frame per line</text>
+        <text x="372" y="158" font-size="11">5 s idle timeout · bad JSON skipped</text>
+        <text x="372" y="220" font-weight="600">dispatch by type</text>
+        <text x="372" y="244" font-size="11"><tspan fill="#4A43B5">user</tspan> → pending[msg_id]; codex queue</text>
+        <text x="372" y="266" font-size="11"><tspan fill="#0B7A63">turn_started</tspan> → busy; active = msg_id</text>
+        <text x="372" y="288" font-size="11"><tspan fill="#0B7A63">turn_ended</tspan> → idle; forward the answer</text>
+        <text x="372" y="310" font-size="11"><tspan fill="#B86E00">relay</tspan> → resolve peer; send; {ok}</text>
+        <text x="372" y="332" font-size="11">ping → {ok, status, pending}</text>
+        <text x="372" y="354" font-size="11">shutdown → {ok}; stop()</text>
+        <text x="372" y="376" font-size="11" fill="#5F6A73">anything else → logged, ignored</text>
+        <text x="372" y="404" font-size="10.5" fill="#5F6A73">only relay, ping, shutdown reply;</text>
+        <text x="372" y="418" font-size="10.5" fill="#5F6A73">Claude and the hooks never wait</text>
+        <path d="M510 96 L510 120" stroke="currentColor" stroke-width="1.2" marker-end="url(#ba)" fill="none"/>
+        <path d="M510 176 L510 200" stroke="currentColor" stroke-width="1.2" marker-end="url(#ba)" fill="none"/>
+        <path d="M300 186 C 330 186, 330 68, 360 68" stroke="currentColor" stroke-width="1.2" marker-end="url(#ba)" fill="none"/>
+
+        <!-- state column -->
+        <g stroke="currentColor" stroke-width="1.2" fill="#EDF0EA">
+          <rect x="720" y="40" width="210" height="96" rx="3"/>
+          <rect x="720" y="160" width="210" height="56" rx="3"/>
+          <rect x="720" y="240" width="210" height="76" rx="3"/>
+          <rect x="720" y="340" width="210" height="76" rx="3"/>
+        </g>
+        <text x="732" y="60" font-weight="600">pending: dict</text>
+        <text x="732" y="78" font-size="11">msg_id → reply socket,</text>
+        <text x="732" y="94" font-size="11">          from-name, queued_at</text>
+        <text x="732" y="112" font-size="10.5" fill="#5F6A73">added by user, removed by</text>
+        <text x="732" y="126" font-size="10.5" fill="#5F6A73">turn_ended or queue failure</text>
+        <text x="732" y="180" font-weight="600">active: msg_id | None</text>
+        <text x="732" y="198" font-size="11">set from the prompt marker</text>
+        <text x="732" y="260" font-weight="600">status: idle | busy</text>
+        <text x="732" y="278" font-size="11">mirrored into &lt;pid&gt;.json so</text>
+        <text x="732" y="294" font-size="11">ListAgents shows it live</text>
+        <text x="732" y="360" font-weight="600">log</text>
+        <text x="732" y="378" font-size="11">~/.cxpeer/logs/&lt;thread&gt;.log</text>
+        <text x="732" y="394" font-size="11">every frame, every failure</text>
+        <path d="M660 250 L720 88" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" fill="none"/>
+        <path d="M660 292 L720 188" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" fill="none"/>
+        <path d="M660 300 L720 278" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" fill="none"/>
+      </g>
+    </svg>

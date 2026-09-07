@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="352" color="#171B1F" viewBox="0 0 960 352" role="img" aria-label="Topology: a Claude Code session sends to the bridge socket and gets the answer back; the bridge registers itself in the shared session registry that every Claude session reads, queues messages into Codex, receives Codex hook events, and relays messages Codex sends from its shell.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+        <marker id="arc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4A43B5"/></marker>
+        <marker id="arx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0B7A63"/></marker>
+        <marker id="arf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#B86E00"/></marker>
+      </defs><rect x="0" y="0" width="960" height="352" fill="#FFFFFF"/>
+      <g font-family="JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="currentColor">
+        <text x="30" y="24" font-size="11" letter-spacing="1.5" fill="#5F6A73">CLAUDE CODE SESSIONS</text>
+        <text x="360" y="24" font-size="11" letter-spacing="1.5" fill="#5F6A73">BRIDGE · SHARED ON DISK</text>
+        <text x="700" y="24" font-size="11" letter-spacing="1.5" fill="#5F6A73">CODEX SESSION</text>
+
+        <!-- Claude sessions -->
+        <g stroke="#4A43B5" fill="#E7E5F8" stroke-width="1.5">
+          <rect x="30" y="40" width="230" height="80" rx="3"/>
+          <rect x="30" y="134" width="230" height="58" rx="3"/>
+          <rect x="30" y="206" width="230" height="58" rx="3"/>
+        </g>
+        <text x="42" y="61" font-weight="600">unclave-8b</text>
+        <text x="42" y="80" font-size="11" fill="#5F6A73">/tmp/cc-socks/81548.sock</text>
+        <text x="42" y="104" font-size="10.5" fill="#5F6A73">asks, and gets the answer back</text>
+        <text x="42" y="155" font-weight="600">unclave-25</text>
+        <text x="42" y="174" font-size="11" fill="#5F6A73">/tmp/cc-socks/84214.sock</text>
+        <text x="42" y="227" font-weight="600">cx-wire</text>
+        <text x="42" y="246" font-size="11" fill="#5F6A73">/tmp/cc-socks/85683.sock</text>
+
+        <!-- bridge -->
+        <rect x="360" y="40" width="260" height="140" rx="3" fill="#FFFFFF" stroke="currentColor" stroke-width="2"/>
+        <text x="372" y="61" font-weight="600">cxpeer bridge</text>
+        <text x="372" y="80" font-size="11">peer codex-proj-ce · pid 83599</text>
+        <text x="372" y="99" font-size="11">/tmp/cc-socks/83599.sock · auth</text>
+        <text x="372" y="118" font-size="11">pending[msg_id] → reply address</text>
+        <text x="372" y="137" font-size="11">status idle / busy · watch-pid 89148</text>
+        <text x="372" y="156" font-size="11">outbox /tmp/cxpeer-&lt;uid&gt;/&lt;thread&gt;</text>
+        <text x="372" y="172" font-size="10.5" fill="#5F6A73">polls outbox 1 s · snapshot 4 s</text>
+
+        <!-- registry -->
+        <rect x="370" y="216" width="240" height="84" rx="3" fill="#EDF0EA" stroke="currentColor" stroke-width="1.2"/>
+        <text x="382" y="237" font-weight="600">~/.claude/sessions/</text>
+        <text x="382" y="258" font-size="11">&lt;pid&gt;.json  name · cwd · status · sock</text>
+        <text x="382" y="276" font-size="11">&lt;pid&gt;.&lt;sha256(sock)&gt;.key  peerToken</text>
+        <text x="382" y="292" font-size="10.5" fill="#5F6A73">alive = procStart matches ps lstart</text>
+
+        <!-- codex -->
+        <g stroke="#0B7A63" fill="#DDF2EC" stroke-width="1.5">
+          <rect x="700" y="40" width="230" height="110" rx="3"/>
+          <rect x="700" y="180" width="230" height="52" rx="3"/>
+          <rect x="700" y="260" width="230" height="52" rx="3"/>
+        </g>
+        <text x="712" y="61" font-weight="600">codex (TUI)</text>
+        <text x="712" y="82" font-size="11">thread 01a07d69-…-3246a26168ce</text>
+        <text x="712" y="102" font-size="11">hooks.json → cxpeer hook …</text>
+        <text x="712" y="120" font-size="10.5" fill="#5F6A73">SessionStart · UserPromptSubmit</text>
+        <text x="712" y="136" font-size="10.5" fill="#5F6A73">Stop · Interrupt · SessionEnd</text>
+        <text x="712" y="201" font-weight="600">~/.codex/queue_1.sqlite</text>
+        <text x="712" y="220" font-size="11" fill="#5F6A73">TUI drains it when idle</text>
+        <text x="712" y="281" font-weight="600">shell inside the turn</text>
+        <text x="712" y="300" font-size="11" fill="#5F6A73">cxpeer list · cxpeer send</text>
+
+        <!-- Claude <-> bridge -->
+        <path d="M260 76 L360 76" stroke="#4A43B5" stroke-width="2" marker-end="url(#arc)" fill="none"/>
+        <text x="272" y="68" font-size="10.5" fill="#4A43B5">SendMessage</text>
+        <path d="M360 104 L260 104" stroke="#B86E00" stroke-width="2" marker-end="url(#arf)" fill="none"/>
+        <text x="288" y="118" font-size="10.5" fill="#B86E00">answer</text>
+        <path d="M360 150 C 320 150, 320 163, 260 163" stroke="#B86E00" stroke-width="1.5" marker-end="url(#arf)" fill="none"/>
+        <text x="292" y="182" font-size="10.5" fill="#B86E00">relay</text>
+        <path d="M260 235 L370 235" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#ar)" fill="none"/>
+        <text x="264" y="227" font-size="10" fill="#5F6A73">ListAgents reads</text>
+        <path d="M465 180 L465 216" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)" fill="none"/>
+        <text x="472" y="202" font-size="10.5" fill="#5F6A73">writes .json + .key</text>
+
+        <!-- bridge <-> codex -->
+        <path d="M700 120 L620 120" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)" fill="none"/>
+        <text x="644" y="112" font-size="10.5" fill="#5F6A73">hooks</text>
+        <path d="M620 150 L660 150 L660 206 L700 206" stroke="#0B7A63" stroke-width="2" marker-end="url(#arx)" fill="none"/>
+        <text x="626" y="142" font-size="10.5" fill="#0B7A63">codex queue</text>
+        <path d="M815 180 L815 150" stroke="#0B7A63" stroke-width="1.5" marker-end="url(#arx)" fill="none"/>
+        <text x="822" y="170" font-size="10.5" fill="#0B7A63">auto-submit</text>
+        <path d="M700 286 L650 286 L650 165 L620 165" stroke="#B86E00" stroke-width="1.5" marker-end="url(#arf)" fill="none"/>
+        <text x="626" y="300" font-size="10.5" fill="#B86E00">cxpeer send</text>
+
+        <text x="30" y="324" font-size="10.5" fill="#B86E00">answers and relays are user frames from="uds:/tmp/cc-socks/83599.sock"</text>
+        <text x="30" y="340" font-size="10.5" fill="#5F6A73">any live Claude session can be the target; the bridge holds the only reply address</text>
+      </g>
+    </svg>
