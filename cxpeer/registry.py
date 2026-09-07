@@ -101,7 +101,7 @@ def register(pid: int, name: str, cwd: str, sock_path: str, token: str) -> None:
         "procStart": started,
         "version": CLAUDE_VERSION,
         "peerProtocol": 1,
-        "peerFeatures": [],
+        "peerFeatures": ["notify_idle"],  # Claude only sends idle subscriptions to peers that advertise this
         "kind": "interactive",
         "entrypoint": "cli",
         "pidDomain": PID_DOMAIN,

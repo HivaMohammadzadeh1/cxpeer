@@ -147,7 +147,7 @@ def test_bridge_registers_as_a_peer_and_answers_ping(bridge, isolated_env):
     assert json.loads(keys[0].read_text())["peerToken"] == state["token"]
 
     reply = talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)
-    assert reply == {"ok": True, "name": "codex-proj-ce", "thread": THREAD, "status": "idle", "pending": 0}
+    assert reply == {"ok": True, "name": "codex-proj-ce", "thread": THREAD, "status": "idle", "pending": 0, "idle_subscribers": 0}
 
 
 def test_wrong_token_is_dropped_but_bridge_stays_up(bridge):
@@ -195,7 +195,7 @@ def test_turn_ended_forwards_answer_to_the_requesting_peer(bridge, claude, isola
     assert content.startswith(f'<cross-session-message from="uds:{state["sock"]}" from-name="codex-proj-ce"')
     assert "\nPONG\n" in content
     assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True) == {
-        "ok": True, "name": "codex-proj-ce", "thread": THREAD, "status": "idle", "pending": 0}
+        "ok": True, "name": "codex-proj-ce", "thread": THREAD, "status": "idle", "pending": 0, "idle_subscribers": 0}
 
 
 def test_human_turn_does_not_answer_a_pending_peer_request(bridge, claude):
@@ -338,3 +338,44 @@ def test_interrupted_turn_tells_the_requester(bridge, claude):
     frames = claude.wait_for_frames(2)
     assert "interrupted before it answered" in frames[1]["message"]["content"]
     assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["pending"] == 0
+
+
+def subscribe_frame(sender: FakeClaude, msg_id: str = "sub-1") -> dict:
+    return {"type": "control", "action": "notify_when_idle", "from": f"uds:{sender.sock_path}",
+            "from_mode": "prompting", "msgV": 1, "msg_id": msg_id}
+
+
+def test_idle_subscription_fires_after_the_turn_with_the_answer_as_detail(bridge, claude):
+    _, state = bridge
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-s")], expect_reply=False)
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-s"}], expect_reply=False)
+    talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-7")], expect_reply=False)
+    assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["idle_subscribers"] == 1
+    assert claude.wait_for_frames(1, timeout=1.0) == []  # busy: nothing fires yet
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "PONG  \n done"}], expect_reply=False)
+    frames = claude.wait_for_frames(4)  # auth+answer, auth+notice (order between the two sends may vary)
+    notices = [f for f in frames if f.get("action") == "peer_idle_notice"]
+    assert len(notices) == 1
+    n = notices[0]
+    assert n["type"] == "control" and n["orig_msg_id"] == "sub-7" and n["state"] == "idle"
+    assert n["from"] == f"uds:{state['sock']}" and n["detail"] == "PONG done"
+    assert n["finished_at"].endswith("+00:00")
+    assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["idle_subscribers"] == 0
+
+
+def test_idle_subscription_while_idle_fires_immediately(bridge, claude):
+    _, state = bridge
+    talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-now")], expect_reply=False)
+    frames = claude.wait_for_frames(2)
+    assert frames[1]["action"] == "peer_idle_notice" and frames[1]["orig_msg_id"] == "sub-now"
+    assert "detail" not in frames[1]
+
+
+def test_shutdown_tells_subscribers_the_peer_exited(bridge, claude):
+    proc, state = bridge
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": None}], expect_reply=False)
+    talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-x")], expect_reply=False)
+    talk(state["sock"], state["token"], [{"type": "cxpeer.shutdown"}], expect_reply=True)
+    proc.wait(timeout=5)
+    frames = claude.wait_for_frames(2)
+    assert frames[1]["action"] == "peer_idle_notice" and frames[1]["state"] == "exited" and frames[1]["orig_msg_id"] == "sub-x"

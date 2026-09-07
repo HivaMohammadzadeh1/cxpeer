@@ -20,6 +20,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import registry, wire
@@ -82,6 +83,18 @@ class PendingRequest:
     queued_at: float
 
 
+@dataclass
+class IdleSubscription:
+    """A Claude session that asked (SendMessage notify_when_idle) to hear when this peer goes idle."""
+
+    orig_msg_id: str
+    reply_sock: str
+    from_mode: str | None
+
+
+IDLE_DETAIL_MAX_CHARS = 300
+
+
 class Bridge:
     def __init__(
         self,
@@ -103,6 +116,7 @@ class Bridge:
         self.status = "idle"
         self.pending: dict[str, PendingRequest] = {}
         self.active: str | None = None
+        self.idle_subscriptions: dict[str, IdleSubscription] = {}  # keyed by reply socket, one-shot
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._server: socket.socket | None = None
@@ -161,6 +175,7 @@ class Bridge:
         self._stop.set()
 
     def cleanup(self) -> None:
+        self._fire_idle_notices("exited", None)
         for step, action in (
             ("deregister", lambda: registry.deregister(self.pid)),
             ("remove state", lambda: self.state_path.unlink(missing_ok=True)),
@@ -303,6 +318,7 @@ class Bridge:
     def _dispatch(self, frame: dict) -> dict | None:
         handlers = {
             "user": self.on_user,
+            "control": self.on_control,
             "cxpeer.turn_started": self.on_turn_started,
             "cxpeer.turn_ended": self.on_turn_ended,
             "cxpeer.relay": self.on_relay,
@@ -341,6 +357,48 @@ class Bridge:
             self._try_send(reply_sock, UNDELIVERABLE_NOTE.format(name=self.name, error=error))
         return None
 
+    def on_control(self, frame: dict) -> None:
+        if frame.get("action") != "notify_when_idle":
+            LOG.info("ignoring control action %r", frame.get("action"))
+            return None
+        reply_sock = reply_socket(frame.get("from"))
+        orig = frame.get("msg_id")
+        if reply_sock is None or not isinstance(orig, str):
+            LOG.warning("ignoring notify_when_idle without a usable reply address or msg_id")
+            return None
+        mode = frame.get("from_mode") if isinstance(frame.get("from_mode"), str) else None
+        with self._lock:
+            self.idle_subscriptions[reply_sock] = IdleSubscription(orig, reply_sock, mode)
+            idle_now = self.status == "idle" and self.active is None
+        LOG.info("idle subscription from %s (orig %s)%s", reply_sock, orig, "; already idle" if idle_now else "")
+        if idle_now:
+            self._fire_idle_notices("idle", None)
+        return None
+
+    def _fire_idle_notices(self, state: str, detail: str | None) -> None:
+        """One-shot: tell every subscriber this peer is idle (or gone), then forget them."""
+        with self._lock:
+            subscribers = list(self.idle_subscriptions.values())
+            self.idle_subscriptions.clear()
+        for sub in subscribers:
+            frame = {
+                "type": "control", "action": "peer_idle_notice", "msgV": 1, "msg_id": str(uuid.uuid4()),
+                "orig_msg_id": sub.orig_msg_id, "state": state,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "from": self.address, "from_mode": "prompting",
+            }
+            if detail:
+                frame["detail"] = " ".join(detail.split())[:IDLE_DETAIL_MAX_CHARS]
+            token = registry.token_for(sub.reply_sock)
+            if token is None:
+                LOG.warning("idle notice for %s dropped: no auth key", sub.reply_sock)
+                continue
+            try:
+                wire.send_frames(sub.reply_sock, token, [frame])
+                LOG.info("idle notice (%s) sent to %s", state, sub.reply_sock)
+            except OSError as exc:
+                LOG.error("idle notice to %s failed: %s", sub.reply_sock, exc)
+
     def on_turn_started(self, frame: dict) -> None:
         self._set_status("busy")
         msg_id = frame.get("msg_id")
@@ -354,10 +412,11 @@ class Bridge:
         with self._lock:
             request = self.pending.pop(self.active, None) if self.active else None
             self.active = None
+        answer = frame.get("last_assistant_message")
+        self._fire_idle_notices("idle", answer if isinstance(answer, str) else None)
         if request is None:
             LOG.info("turn ended; no peer request to answer")
             return None
-        answer = frame.get("last_assistant_message")
         if frame.get("reason") == "interrupted":
             text = INTERRUPTED_NOTE
         else:
@@ -388,8 +447,9 @@ class Bridge:
 
     def on_ping(self, frame: dict) -> dict:
         with self._lock:
-            pending = len(self.pending)
-        return {"ok": True, "name": self.name, "thread": self.thread, "status": self.status, "pending": pending}
+            pending, subscribers = len(self.pending), len(self.idle_subscriptions)
+        return {"ok": True, "name": self.name, "thread": self.thread, "status": self.status,
+                "pending": pending, "idle_subscribers": subscribers}
 
     def on_shutdown(self, frame: dict) -> dict:
         LOG.info("shutdown requested")
