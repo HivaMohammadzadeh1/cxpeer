@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "cxpeer",
+  "displayName": "cxpeer",
+  "version": "0.1.0",
+  "description": "Use Codex CLI sessions as peers in Claude Code cross-session messaging: spawn them, message them, and get each turn's answer back automatically.",
+  "author": {
+    "name": "Hiva Mohammadzadeh",
+    "url": "https://github.com/HivaMohammadzadeh1"
+  },
+  "homepage": "https://github.com/HivaMohammadzadeh1/cxpeer",
+  "repository": "https://github.com/HivaMohammadzadeh1/cxpeer",
+  "license": "MIT",
+  "keywords": ["codex", "claude-code", "cross-session", "messaging", "agents", "tmux"]
+}
