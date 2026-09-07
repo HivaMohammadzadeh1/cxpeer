@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 
-from cxpeer import bridge, client, hooks, install, registry, spawn
+from cxpeer import bridge, client, doctor, hooks, install, registry, spawn
 
 HOOK_EVENTS = ("session-start", "user-prompt-submit", "stop", "interrupt", "session-end")
 
@@ -85,6 +85,10 @@ def _cmd_install(args: argparse.Namespace) -> int:
     return install.run(dry_run=args.dry_run)
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    return doctor.run()
+
+
 def _cmd_spawn(args: argparse.Namespace) -> int:
     extra = args.extra[1:] if args.extra[:1] == ["--"] else args.extra
     return spawn.run(args.kind, args.cwd, args.name, args.prompt, extra,
@@ -115,6 +119,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_install = sub.add_parser("install", help="add the cxpeer hooks and skill to ~/.codex")
     p_install.add_argument("--dry-run", action="store_true", help="print what would be written")
     p_install.set_defaults(func=_cmd_install)
+
+    sub.add_parser("doctor", help="diagnose why peers are not showing up in ListAgents; runs a self-test").set_defaults(func=_cmd_doctor)
 
     p_spawn = sub.add_parser("spawn", help="start a new codex or claude session in a detached tmux session")
     p_spawn.add_argument("kind", choices=("codex", "claude"))

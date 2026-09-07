@@ -114,3 +114,8 @@ def test_send_sandboxed_without_bridge_reports_blocked_sockets(monkeypatch, caps
     monkeypatch.setattr(cli.client, "sandboxed", lambda: True)
     assert cli.main(["send", "--to", "codex-x", "hi"]) == 1
     assert "sockets are blocked in this sandbox" in capsys.readouterr().err
+
+
+def test_doctor_dispatches(monkeypatch):
+    monkeypatch.setattr(cli.doctor, "run", lambda: 0)
+    assert cli.main(["doctor"]) == 0
