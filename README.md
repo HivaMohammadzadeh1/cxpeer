@@ -71,7 +71,9 @@ inside Claude's peer system.
    these two commands do not touch the bridge socket: `send` drops a request file into
    `/tmp/cxpeer-<uid>/<thread>/`, which the bridge polls every second and answers with a
    result file, and `list` reads a peers snapshot the bridge refreshes every four
-   seconds. Outside the sandbox the same commands use the socket directly.
+   seconds (a snapshot older than 15 seconds counts as no bridge). Outside the sandbox
+   the same commands use the socket directly. A bridge started by an older cxpeer has
+   no outbox; a sandboxed `send` then says so, and restarting the Codex session fixes it.
 5. When the Codex session ends, the `SessionEnd` hook tells the bridge to deregister
    and exit. If Codex exits without firing the hook, the bridge notices its watched
    pid is gone and cleans up within a few seconds.
