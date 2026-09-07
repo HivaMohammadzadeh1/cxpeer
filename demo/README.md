@@ -1,5 +1,10 @@
 # Demo
 
+![recorded journey run](../docs/images/journey.gif)
+
+The recording above is `demo/journey.py`, the narrated version. `demo/demo.py` below is the
+shorter one.
+
 `demo/demo.py` plays the Claude side without a Claude Code session. It registers a
 temporary peer named `claude-demo`, starts a real Codex peer with `cxpeer spawn --wait`,
 sends it one message plus an idle subscription, and waits for the answer and the idle

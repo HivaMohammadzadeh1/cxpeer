@@ -15,6 +15,10 @@ Codex sessions as peers in Claude Code's cross-session messaging
 
 ---
 
+<p align="center"><img src="docs/images/journey.gif" width="900" alt="Recorded run of demo/journey.py: install check, spawn a Codex peer, give it a task, Codex messages back from its sandbox, teardown"></p>
+
+<p align="center">A real run, recorded with asciinema, 46 s of wall clock compressed to 18 s. <a href="docs/user-journey.md">Transcript</a> · <a href="docs/images/journey.mp4">MP4</a> · <a href="docs/journey.cast">asciinema cast</a></p>
+
 ## Latest news
 
 - [2026-09-07] A recorded [user journey](docs/user-journey.md): install check, spawn a Codex peer, give it a task, have it message back from inside its sandbox. 41 seconds end to end.
