@@ -87,7 +87,8 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
 def _cmd_spawn(args: argparse.Namespace) -> int:
     extra = args.extra[1:] if args.extra[:1] == ["--"] else args.extra
-    return spawn.run(args.kind, args.cwd, args.name, args.prompt, extra)
+    return spawn.run(args.kind, args.cwd, args.name, args.prompt, extra,
+                     peer_name=args.peer_name, wait=args.wait, timeout=args.timeout)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -120,6 +121,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_spawn.add_argument("--cwd", default=".", help="working directory for the new session (default: here)")
     p_spawn.add_argument("--name", help="tmux session suffix and, for claude, the session name")
     p_spawn.add_argument("--prompt", help="initial prompt for the new session")
+    p_spawn.add_argument("--peer-name", help="name the session shows in ListAgents (default: --name)")
+    p_spawn.add_argument("--wait", action="store_true",
+                         help="answer Codex's startup prompts and wait until the peer is registered")
+    p_spawn.add_argument("--timeout", type=float, default=60.0, help="seconds --wait allows (default 60)")
     p_spawn.add_argument("extra", nargs="*", help="extra args after --, passed to codex/claude verbatim")
     p_spawn.set_defaults(func=_cmd_spawn)
 
