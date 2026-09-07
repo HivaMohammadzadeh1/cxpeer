@@ -146,7 +146,7 @@ class Bridge:
                     LOG.info("watched pid %s is gone; shutting down", self.watch_pid)
                     break
                 self._expire_pending()
-                self._write_peers_snapshot()
+                threading.Thread(target=self._write_peers_snapshot, daemon=True).start()
             self._drain_outbox()
             try:
                 conn, _ = self._server.accept()
@@ -188,25 +188,33 @@ class Bridge:
             LOG.error("peers snapshot failed: %s", exc)
 
     def _drain_outbox(self) -> None:
-        """Relay send requests dropped in the outbox by sandboxed `cxpeer send`."""
+        """Claim send requests dropped in the outbox by sandboxed `cxpeer send`, one thread each."""
         try:
             requests = sorted(p for p in self.outbox.glob("*.json") if not p.name.endswith(".result.json"))
         except OSError as exc:
             LOG.error("outbox unreadable: %s", exc)
             return
         for path in requests:
-            request = _read_json(path)
-            request_id = request.get("id") if isinstance(request, dict) else None
-            if not isinstance(request_id, str) or request_id != path.stem:
-                LOG.warning("dropping malformed outbox request %s", path.name)
-                path.unlink(missing_ok=True)
-                continue
-            result = self.on_relay({"type": "cxpeer.relay", "to": request.get("to"), "text": request.get("text")})
+            claimed = path.with_name(path.name + ".claimed")
             try:
-                _write_json_atomic(path.with_name(f"{request_id}.result.json"), result)
-            except OSError as exc:
-                LOG.error("could not write result for %s: %s", request_id, exc)
-            path.unlink(missing_ok=True)
+                os.rename(path, claimed)  # atomic: a request is relayed at most once
+            except OSError:
+                continue
+            threading.Thread(target=self._relay_outbox_request, args=(claimed,), daemon=True).start()
+
+    def _relay_outbox_request(self, claimed: Path) -> None:
+        request_id = claimed.name[: -len(".json.claimed")]
+        request = _read_json(claimed)
+        if not isinstance(request, dict) or request.get("id") != request_id:
+            LOG.warning("dropping malformed outbox request %s", request_id)
+            claimed.unlink(missing_ok=True)
+            return
+        result = self.on_relay({"type": "cxpeer.relay", "to": request.get("to"), "text": request.get("text")})
+        try:
+            _write_json_atomic(claimed.with_name(f"{request_id}.result.json"), result)
+        except OSError as exc:
+            LOG.error("could not write result for %s: %s", request_id, exc)
+        claimed.unlink(missing_ok=True)
 
     def _remove_outbox(self) -> None:
         for path in self.outbox.glob("*"):
