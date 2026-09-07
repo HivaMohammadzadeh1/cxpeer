@@ -118,6 +118,16 @@ def _read_one_line(s: socket.socket, timeout: float) -> dict | None:
         return None
 
 
+def ping(bridge: BridgeInfo) -> dict:
+    """Ask a bridge for its status; raise RuntimeError if it does not answer."""
+    return _request(bridge.sock, bridge.token, {"type": "cxpeer.ping"})
+
+
+def list_bridges() -> list[BridgeInfo]:
+    """Every bridge with a state file, newest first, whether or not it is still alive."""
+    return sorted(_load_bridges(), key=lambda b: b.started, reverse=True)
+
+
 def send(to: str, text: str, bridge: BridgeInfo) -> None:
     """Ask the bridge to relay `text` to peer `to`. Raise on a failed relay."""
     resp = _request(bridge.sock, bridge.token, {"type": "cxpeer.relay", "to": to, "text": text})

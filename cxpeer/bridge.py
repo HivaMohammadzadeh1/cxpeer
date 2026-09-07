@@ -359,16 +359,10 @@ def _configure_logging(thread: str) -> None:
     logging.getLogger("cxpeer").setLevel(logging.INFO)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="cxpeer bridge", description=__doc__.splitlines()[0])
-    parser.add_argument("--thread", required=True, help="Codex thread/session uuid")
-    parser.add_argument("--cwd", required=True, help="Codex session working directory")
-    parser.add_argument("--name", help="peer name shown to Claude (default codex-<dir>-<xx>)")
-    parser.add_argument("--watch-pid", type=int, help="exit when this pid (the Codex TUI) is gone")
-    args = parser.parse_args(argv)
-
-    _configure_logging(args.thread)
-    bridge = Bridge(args.thread, args.cwd, name=args.name, watch_pid=args.watch_pid)
+def run(thread: str, cwd: str, name: str | None = None, watch_pid: int | None = None) -> int:
+    """Run a bridge in the foreground until shutdown, SIGTERM, or the watched pid exits."""
+    _configure_logging(thread)
+    bridge = Bridge(thread, cwd, name=name, watch_pid=watch_pid)
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: bridge.stop())
     bridge.start()
@@ -377,6 +371,20 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         bridge.cleanup()
     return 0
+
+
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--thread", required=True, help="Codex thread/session uuid")
+    parser.add_argument("--cwd", required=True, help="Codex session working directory")
+    parser.add_argument("--name", help="peer name shown to Claude (default codex-<dir>-<xx>)")
+    parser.add_argument("--watch-pid", type=int, help="exit when this pid (the Codex TUI) is gone")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="cxpeer bridge", description=__doc__.splitlines()[0])
+    add_arguments(parser)
+    args = parser.parse_args(argv)
+    return run(args.thread, args.cwd, name=args.name, watch_pid=args.watch_pid)
 
 
 if __name__ == "__main__":

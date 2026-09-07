@@ -207,9 +207,3 @@ def test_cli_send_no_bridge_no_peer_exits_1(isolated_env, monkeypatch, capsys):
     monkeypatch.setattr(registry, "list_peers", lambda: [])  # send_direct.resolve finds nothing
     assert cli.main(["send", "--to", "ghost", "hello"]) == 1
     assert "no live peer" in capsys.readouterr().err
-
-
-def test_stub_subcommands_raise(isolated_env):
-    for argv in (["bridge"], ["status"], ["install"]):
-        with pytest.raises(NotImplementedError):
-            cli.main(argv)
