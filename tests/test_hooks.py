@@ -89,6 +89,15 @@ def test_stop_sends_turn_ended_with_last_message(bridge):
     assert lines[1] == {"type": "cxpeer.turn_ended", "last_assistant_message": "LOOP-OK"}
 
 
+def test_interrupt_sends_turn_ended_with_interrupted_reason(bridge, capsys):
+    rc = hooks.run("interrupt", {"session_id": SID, "cwd": "/tmp", "hook_event_name": "Interrupt"})
+    assert rc == 0
+    assert capsys.readouterr().out == ""
+    lines = bridge.wait()
+    assert lines[0]["type"] == "auth"
+    assert lines[1] == {"type": "cxpeer.turn_ended", "last_assistant_message": None, "reason": "interrupted"}
+
+
 def test_session_end_sends_shutdown(bridge):
     hooks.run("session-end", {"session_id": SID})
     lines = bridge.wait()

@@ -63,6 +63,13 @@ def _stop(payload: dict) -> None:
                     "last_assistant_message": payload.get("last_assistant_message")})
 
 
+def _interrupt(payload: dict) -> None:
+    """Codex fires Interrupt instead of Stop when a turn is cancelled; end the turn so the
+    bridge does not stay busy with the request pending."""
+    _send(payload, {"type": "cxpeer.turn_ended", "last_assistant_message": None,
+                    "reason": "interrupted"})
+
+
 def _session_end(payload: dict) -> None:
     _send(payload, {"type": "cxpeer.shutdown"})
 
@@ -71,6 +78,7 @@ _HANDLERS = {
     "session-start": _session_start,
     "user-prompt-submit": _user_prompt_submit,
     "stop": _stop,
+    "interrupt": _interrupt,
     "session-end": _session_end,
 }
 

@@ -11,7 +11,8 @@ import pytest
 from cxpeer import install
 
 PKG_SKILL = files("cxpeer").joinpath("data/SKILL.md")
-EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]
+EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Interrupt"]
+CMD_EVENTS = ["session-start", "user-prompt-submit", "stop", "session-end", "interrupt"]
 EXISTING = {
     "hooks": {
         "PreToolUse": [
@@ -34,11 +35,11 @@ def _cxpeer_groups(hooks_json: dict, event: str) -> list[dict]:
     return [g for g in hooks_json["hooks"].get(event, []) if any("cxpeer hook" in h["command"] for h in g["hooks"])]
 
 
-def test_install_adds_four_hooks_and_keeps_unrelated_entry(codex_home, capsys):
+def test_install_adds_five_hooks_and_keeps_unrelated_entry(codex_home, capsys):
     assert install.run(dry_run=False) == 0
     data = json.loads((codex_home / "hooks.json").read_text())
     assert data["hooks"]["PreToolUse"] == EXISTING["hooks"]["PreToolUse"]
-    for event, cmd_event in zip(EVENTS, ["session-start", "user-prompt-submit", "stop", "session-end"]):
+    for event, cmd_event in zip(EVENTS, CMD_EVENTS):
         groups = _cxpeer_groups(data, event)
         assert len(groups) == 1, event
         assert groups[0]["matcher"] == "*"
@@ -55,6 +56,19 @@ def test_install_twice_does_not_duplicate(codex_home):
     data = json.loads(first)
     assert all(len(_cxpeer_groups(data, e)) == 1 for e in EVENTS)
     assert len(data["hooks"]["PreToolUse"]) == 1
+
+
+def test_install_on_legacy_four_entry_file_adds_only_the_fifth(codex_home):
+    """A hooks.json written before the Interrupt hook existed gains one group and keeps the rest."""
+    legacy = json.loads((codex_home / "hooks.json").read_text())
+    for event, cmd_event in zip(EVENTS[:4], CMD_EVENTS[:4]):
+        legacy["hooks"][event] = [{"matcher": "*", "hooks": [{"type": "command", "command": f"cxpeer hook {cmd_event}"}]}]
+    (codex_home / "hooks.json").write_text(json.dumps(legacy))
+    assert install.run(dry_run=False) == 0
+    data = json.loads((codex_home / "hooks.json").read_text())
+    assert data["hooks"]["PreToolUse"] == EXISTING["hooks"]["PreToolUse"]
+    assert all(len(_cxpeer_groups(data, e)) == 1 for e in EVENTS)
+    assert _cxpeer_groups(data, "Interrupt")[0]["hooks"][0]["command"].endswith("cxpeer hook interrupt")
 
 
 def test_install_writes_skill_file_from_package_data(codex_home):

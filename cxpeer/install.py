@@ -14,6 +14,7 @@ HOOK_EVENTS = {
     "UserPromptSubmit": "user-prompt-submit",
     "Stop": "stop",
     "SessionEnd": "session-end",
+    "Interrupt": "interrupt",
 }
 
 
