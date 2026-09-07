@@ -1,0 +1,137 @@
+"""Registry tests: record + key file layout, liveness, lookup. Never touches the real registry."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import stat
+
+import pytest
+
+from cxpeer import registry
+from cxpeer.paths import sessions_dir
+
+
+def test_register_writes_record_and_key(isolated_env):
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    registry.register(pid, "codex-proj-ab", "/work/proj", sock, "a" * 32)
+
+    record_path = sessions_dir() / f"{pid}.json"
+    assert record_path.exists()
+    record = json.loads(record_path.read_text())
+    assert record["name"] == "codex-proj-ab"
+    assert record["cwd"] == "/work/proj"
+    assert record["messagingSocketPath"] == sock
+    assert record["status"] == "idle"
+    assert record["peerProtocol"] == 1
+    assert record["pid"] == pid
+    assert record["procStart"] == registry.proc_start(pid)
+
+    key_path = sessions_dir() / registry.key_name_for(pid, sock)
+    assert key_path.exists()
+    key = json.loads(key_path.read_text())
+    assert key["peerToken"] == "a" * 32
+    assert key["procStart"] == record["procStart"]
+    assert key["pidDomain"] == "darwin"
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+
+def test_key_name_hashes_literal_socket_path():
+    # The hash input is the exact socket path string, not its /private realpath.
+    pid = 4242
+    sock = "/tmp/cc-socks/4242.sock"
+    expected = f"{pid}.{hashlib.sha256(sock.encode()).hexdigest()}.key"
+    assert registry.key_name_for(pid, sock) == expected
+
+
+def test_list_peers_alive_reflects_procstart(isolated_env):
+    live = os.getpid()
+    registry.register(live, "codex-live", "/work", registry.sock_path_for(live), "a" * 32)
+
+    # A record whose stored procStart no longer matches the running process is dead.
+    stale = 1  # launchd: exists, but we overwrite its stored procStart to force a mismatch.
+    registry.register(stale, "codex-stale", "/work", registry.sock_path_for(stale), "b" * 32)
+    stale_path = sessions_dir() / f"{stale}.json"
+    rec = json.loads(stale_path.read_text())
+    rec["procStart"] = "Thu Jan  1 00:00:00 1970"
+    stale_path.write_text(json.dumps(rec))
+
+    peers = {p.name: p for p in registry.list_peers()}
+    assert peers["codex-live"].alive is True
+    assert peers["codex-stale"].alive is False
+    assert peers["codex-live"].pid == live
+    assert peers["codex-live"].sock == registry.sock_path_for(live)
+    assert peers["codex-live"].ref == registry.ref_for(registry.sock_path_for(live))
+
+
+def test_list_peers_marks_missing_process_dead(isolated_env):
+    # A pid with no process is dead even if the record stored a procStart.
+    ghost = 2147480000
+    registry.register(ghost, "codex-ghost", "/work", registry.sock_path_for(ghost), "c" * 32)
+    ghost_path = sessions_dir() / f"{ghost}.json"
+    rec = json.loads(ghost_path.read_text())
+    rec["procStart"] = "Thu Jan  1 00:00:00 1970"  # non-null, but the pid is gone
+    ghost_path.write_text(json.dumps(rec))
+
+    peers = {p.name: p for p in registry.list_peers()}
+    assert peers["codex-ghost"].alive is False
+
+
+def test_token_for_reads_matching_key(isolated_env):
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    registry.register(pid, "codex-x", "/work", sock, "c" * 32)
+    assert registry.token_for(sock) == "c" * 32
+    assert registry.token_for("/tmp/cc-socks/999999.sock") is None
+
+
+def test_resolve_by_name_and_ref(isolated_env):
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    registry.register(pid, "codex-resolveme", "/work", sock, "d" * 32)
+    ref = registry.ref_for(sock)
+
+    assert registry.resolve("codex-resolveme").pid == pid
+    assert registry.resolve(ref).pid == pid
+    with pytest.raises(LookupError):
+        registry.resolve("nope-not-here")
+
+
+def test_resolve_ignores_dead_peers(isolated_env):
+    stale = 1
+    registry.register(stale, "codex-dead", "/work", registry.sock_path_for(stale), "e" * 32)
+    p = sessions_dir() / f"{stale}.json"
+    rec = json.loads(p.read_text())
+    rec["procStart"] = "nope"
+    p.write_text(json.dumps(rec))
+    with pytest.raises(LookupError):
+        registry.resolve("codex-dead")
+
+
+def test_set_status_bumps_timestamps(isolated_env, monkeypatch):
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    monkeypatch.setattr(registry, "_now_ms", lambda: 1000)
+    registry.register(pid, "codex-s", "/work", sock, "f" * 32)
+    rec0 = json.loads((sessions_dir() / f"{pid}.json").read_text())
+    assert rec0["status"] == "idle"
+    assert rec0["statusUpdatedAt"] == 1000
+
+    monkeypatch.setattr(registry, "_now_ms", lambda: 2500)
+    registry.set_status(pid, "busy")
+    rec1 = json.loads((sessions_dir() / f"{pid}.json").read_text())
+    assert rec1["status"] == "busy"
+    assert rec1["statusUpdatedAt"] == 2500
+    assert rec1["updatedAt"] == 2500
+
+
+def test_deregister_removes_record_and_key(isolated_env):
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    registry.register(pid, "codex-d", "/work", sock, "a" * 32)
+    assert (sessions_dir() / f"{pid}.json").exists()
+    registry.deregister(pid)
+    assert not (sessions_dir() / f"{pid}.json").exists()
+    assert not (sessions_dir() / registry.key_name_for(pid, sock)).exists()
