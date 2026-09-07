@@ -93,7 +93,10 @@ Claude's side it is just another peer.
    with a note to the sender.
 4. From the Codex side, `cxpeer send --to NAME "text"` asks the bridge to relay a
    message to any peer, and `cxpeer list` shows the names.
-5. When the Codex session ends, the `SessionEnd` hook tells the bridge to deregister.
+5. A Claude session that passes `notify_when_idle` on its SendMessage gets one idle notice
+   back when the Codex turn ends, with the last message as the detail, or an "exited"
+   notice if the session goes away first. No polling on either side.
+6. When the Codex session ends, the `SessionEnd` hook tells the bridge to deregister.
    If Codex exits without firing the hook, the bridge notices its watched pid is gone
    and cleans up within a few seconds.
 
