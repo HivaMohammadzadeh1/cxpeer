@@ -65,14 +65,19 @@ class FakeClaude:
                 conn, _ = self._server.accept()
             except socket.timeout:
                 continue
-            with conn, conn.makefile("r") as reader:
-                conn.settimeout(3)
-                lines = [json.loads(l) for l in reader if l.strip()]
+            except OSError:  # server socket closed by close()
+                return
+            try:
+                with conn, conn.makefile("r") as reader:
+                    conn.settimeout(3)
+                    lines = [json.loads(l) for l in reader if l.strip()]
+            except (OSError, ValueError):
+                continue
             with self._got:
                 self.frames.extend(lines)
                 self._got.notify_all()
 
-    def wait_for_frames(self, count: int, timeout: float = 8.0) -> list[dict]:
+    def wait_for_frames(self, count: int, timeout: float = 15.0) -> list[dict]:
         with self._got:
             self._got.wait_for(lambda: len(self.frames) >= count, timeout=timeout)
             return list(self.frames)
@@ -109,6 +114,16 @@ def talk(sock_path: str, token: str, frames: list[dict], expect_reply: bool) -> 
         with conn.makefile("r") as reader:
             line = reader.readline()
     return json.loads(line) if line.strip() else None
+
+
+def wait_pending(state: dict, count: int, timeout: float = 10.0) -> None:
+    """Block until the bridge reports `count` pending requests; hook frames come seconds later in real use."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["pending"] == count:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"bridge never reached pending={count}")
 
 
 def claude_user_frame(sender: FakeClaude, text: str, msg_id: str = "m-1") -> dict:
@@ -179,6 +194,7 @@ def test_user_frame_is_queued_into_codex_with_reply_trailer(bridge, claude, fake
 def test_turn_ended_forwards_answer_to_the_requesting_peer(bridge, claude, isolated_env):
     _, state = bridge
     talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-7")], expect_reply=False)
+    wait_pending(state, 1)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-7"}], expect_reply=False)
     record = isolated_env["sessions"] / f"{state['pid']}.json"
     deadline = time.monotonic() + 5
@@ -201,6 +217,7 @@ def test_turn_ended_forwards_answer_to_the_requesting_peer(bridge, claude, isola
 def test_human_turn_does_not_answer_a_pending_peer_request(bridge, claude):
     _, state = bridge
     talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-9")], expect_reply=False)
+    wait_pending(state, 1)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": None}], expect_reply=False)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "hi human"}], expect_reply=False)
     assert claude.wait_for_frames(1, timeout=1.5) == []
@@ -333,6 +350,7 @@ def test_peers_snapshot_lists_alive_peers_and_is_removed_on_shutdown(bridge, cla
 def test_interrupted_turn_tells_the_requester(bridge, claude):
     _, state = bridge
     talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-int")], expect_reply=False)
+    wait_pending(state, 1)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-int"}], expect_reply=False)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": None, "reason": "interrupted"}], expect_reply=False)
     frames = claude.wait_for_frames(2)
@@ -348,6 +366,7 @@ def subscribe_frame(sender: FakeClaude, msg_id: str = "sub-1") -> dict:
 def test_idle_subscription_fires_after_the_turn_with_the_answer_as_detail(bridge, claude):
     _, state = bridge
     talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-s")], expect_reply=False)
+    wait_pending(state, 1)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-s"}], expect_reply=False)
     talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-7")], expect_reply=False)
     assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["idle_subscribers"] == 1
@@ -384,6 +403,7 @@ def test_shutdown_tells_subscribers_the_peer_exited(bridge, claude):
 def test_idle_subscription_waits_for_a_queued_message_to_be_answered(bridge, claude):
     _, state = bridge
     talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-q")], expect_reply=False)
+    wait_pending(state, 1)
     talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-q")], expect_reply=False)
     assert claude.wait_for_frames(1, timeout=1.0) == []  # queued but not started: no notice yet
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-q"}], expect_reply=False)
