@@ -126,6 +126,16 @@ def wait_pending(state: dict, count: int, timeout: float = 10.0) -> None:
     raise AssertionError(f"bridge never reached pending={count}")
 
 
+def wait_status(state: dict, status: str, timeout: float = 10.0) -> None:
+    """Block until the bridge reports `status`; the Stop hook fires seconds after UserPromptSubmit in real use."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["status"] == status:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"bridge never reported status={status}")
+
+
 def claude_user_frame(sender: FakeClaude, text: str, msg_id: str = "m-1") -> dict:
     content = f'<cross-session-message from="uds:{sender.sock_path}" from-name="{sender.name}" from-mode="prompting">\n{text}\n</cross-session-message>'
     return {"msgV": 1, "msg_id": msg_id, "type": "user", "message": {"role": "user", "content": content},
@@ -219,6 +229,7 @@ def test_human_turn_does_not_answer_a_pending_peer_request(bridge, claude):
     talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-9")], expect_reply=False)
     wait_pending(state, 1)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": None}], expect_reply=False)
+    wait_status(state, "busy")
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "hi human"}], expect_reply=False)
     assert claude.wait_for_frames(1, timeout=1.5) == []
     assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["pending"] == 1
@@ -352,6 +363,7 @@ def test_interrupted_turn_tells_the_requester(bridge, claude):
     talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-int")], expect_reply=False)
     wait_pending(state, 1)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-int"}], expect_reply=False)
+    wait_status(state, "busy")
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": None, "reason": "interrupted"}], expect_reply=False)
     frames = claude.wait_for_frames(2)
     assert "interrupted before it answered" in frames[1]["message"]["content"]
@@ -368,6 +380,7 @@ def test_idle_subscription_fires_after_the_turn_with_the_answer_as_detail(bridge
     talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-s")], expect_reply=False)
     wait_pending(state, 1)
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-s"}], expect_reply=False)
+    wait_status(state, "busy")
     talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-7")], expect_reply=False)
     assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["idle_subscribers"] == 1
     assert claude.wait_for_frames(1, timeout=1.0) == []  # busy: nothing fires yet
@@ -393,6 +406,7 @@ def test_idle_subscription_while_idle_fires_immediately(bridge, claude):
 def test_shutdown_tells_subscribers_the_peer_exited(bridge, claude):
     proc, state = bridge
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": None}], expect_reply=False)
+    wait_status(state, "busy")
     talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-x")], expect_reply=False)
     talk(state["sock"], state["token"], [{"type": "cxpeer.shutdown"}], expect_reply=True)
     proc.wait(timeout=5)
@@ -407,7 +421,17 @@ def test_idle_subscription_waits_for_a_queued_message_to_be_answered(bridge, cla
     talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-q")], expect_reply=False)
     assert claude.wait_for_frames(1, timeout=1.0) == []  # queued but not started: no notice yet
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-q"}], expect_reply=False)
+    wait_status(state, "busy")
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "PONG"}], expect_reply=False)
     frames = claude.wait_for_frames(4)
     notices = [f for f in frames if f.get("action") == "peer_idle_notice"]
     assert len(notices) == 1 and notices[0]["orig_msg_id"] == "sub-q" and notices[0]["detail"] == "PONG"
+
+
+def test_second_bridge_for_the_same_thread_exits_and_leaves_the_first(bridge, isolated_env):
+    proc, state = bridge
+    second = start_bridge()
+    assert second.wait(timeout=10) == 0
+    assert proc.poll() is None
+    assert json.loads((isolated_env["home"] / "bridges" / f"{THREAD}.json").read_text())["pid"] == state["pid"]
+    assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["ok"] is True

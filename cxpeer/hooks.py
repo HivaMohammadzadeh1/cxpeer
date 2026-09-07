@@ -104,6 +104,9 @@ def _send(payload: dict, frame: dict) -> None:
     thread = payload["session_id"]
     kind = frame["type"]
     state = _read_bridge(thread)
+    if state is None:
+        # session-start may be starting the bridge right now; give it a moment before respawning
+        state = _wait_for_bridge(thread)
     if state is None or not _bridge_alive(state):
         _log(f"{kind}: {'no bridge state' if state is None else 'bridge dead'} for thread {thread}; respawning")
         _spawn_bridge(thread, payload.get("cwd") or os.getcwd(), kind)

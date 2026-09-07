@@ -8,6 +8,7 @@ frames. Every connection must start with an auth line carrying this bridge's tok
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import logging
 import os
@@ -120,6 +121,7 @@ class Bridge:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._server: socket.socket | None = None
+        self._lock_fd: int | None = None
 
     # ----- lifecycle -----
 
@@ -134,6 +136,22 @@ class Bridge:
     @property
     def outbox(self) -> Path:
         return outbox_root() / self.thread
+
+    @property
+    def lock_path(self) -> Path:
+        return bridges_dir() / f"{self.thread}.lock"
+
+    def acquire_thread_lock(self) -> bool:
+        """One bridge per Codex thread: hooks can race to spawn, the lock decides who stays."""
+        bridges_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._lock_fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(self._lock_fd)
+            self._lock_fd = None
+            return False
+        return True
 
     def start(self) -> None:
         sock_dir().mkdir(mode=0o700, exist_ok=True)
@@ -526,6 +544,9 @@ def run(thread: str, cwd: str, name: str | None = None, watch_pid: int | None = 
     """Run a bridge in the foreground until shutdown, SIGTERM, or the watched pid exits."""
     _configure_logging(thread)
     bridge = Bridge(thread, cwd, name=name, watch_pid=watch_pid)
+    if not bridge.acquire_thread_lock():
+        LOG.info("another bridge already serves thread %s; exiting", thread)
+        return 0
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: bridge.stop())
     bridge.start()
