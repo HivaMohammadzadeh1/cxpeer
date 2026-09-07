@@ -10,13 +10,13 @@ Running Codex CLI sessions appear in ListAgents as `codex-<dir>-<xx>`. SendMessa
 ## Install once per machine
 
 1. `uv tool install git+https://github.com/HivaMohammadzadeh1/cxpeer` (or `pipx install git+https://github.com/HivaMohammadzadeh1/cxpeer`).
-2. `cxpeer install` adds four hooks to `~/.codex/hooks.json` and the Codex-side skill to `~/.codex/skills/cxpeer/SKILL.md`. Add `--dry-run` to preview.
+2. `cxpeer install` adds five hooks to `~/.codex/hooks.json` and the Codex-side skill to `~/.codex/skills/cxpeer/SKILL.md`. Add `--dry-run` to preview. Codex asks once, at its next start, to trust the new hooks; it must be accepted or no bridge is created.
 3. Needs macOS, Python 3.11+, Codex CLI 0.153+, and tmux for `cxpeer spawn`.
 
 ## Hand a job to Codex
 
 1. `cxpeer spawn codex --cwd DIR --prompt "task text"` starts Codex in a detached tmux session and prints the session name.
-2. Call ListAgents until a `codex-<dir>-<xx>` peer appears. This takes a few seconds.
+2. Call ListAgents until a `codex-<dir>-<xx>` peer appears. This takes a few seconds after Codex submits its first prompt. If nothing appears within 30 seconds, `tmux attach -t <session>`: Codex is probably waiting on a startup prompt (update, directory trust, or hook trust).
 3. SendMessage that peer with the task. Do not poll for the result. The answer arrives as a cross-session message when the Codex turn ends.
 4. Send the next message after the previous answer arrives. Codex picks up a message when it is idle.
 
