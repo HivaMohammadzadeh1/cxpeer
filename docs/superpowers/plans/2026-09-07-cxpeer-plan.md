@@ -32,8 +32,10 @@ subcommands as `NotImplementedError` stubs so unclave-8b can fill them in withou
 Registration, auth gate, `user` -> `codex queue` with trailer, pending table, turn_started/turn_ended auto-reply
 to a fake Claude UDS server, relay, ping, shutdown, watch-pid exit.
 
-## Task 5 (owner: unclave-8b): `cxpeer/hooks.py`, `cli.py` (`hook`, `status`, `install`), `skills/cxpeer/SKILL.md`, `tests/test_hooks.py`
-Hook handlers never fail the turn. `install` merges into `~/.codex/hooks.json` without duplicating.
+## Task 5 (owner: cx-wire): `cxpeer/hooks.py` (`run(event, payload)`), `cxpeer/install.py` (`run(dry_run)`), `skills/cxpeer/SKILL.md`, `tests/test_hooks.py`, `tests/test_install.py`
+Hook handlers never fail the turn. `install` merges into `~/.codex/hooks.json` without duplicating. hooks.py reads the bridge state file directly and does not import client.py. cli.py wiring of `hook`/`status`/`install` is done by unclave-8b at integration.
+
+Task 2 is also owned by cx-wire (a session spawned for parallelism).
 
 ## Task 6 (owner: unclave-8b): `scripts/e2e.sh`, `README.md`
 tmux-driven manual e2e; README with install, how it works, limits.
