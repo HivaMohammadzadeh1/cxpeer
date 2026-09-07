@@ -10,6 +10,6 @@
   },
   "homepage": "https://github.com/HivaMohammadzadeh1/cxpeer",
   "repository": "https://github.com/HivaMohammadzadeh1/cxpeer",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "keywords": ["codex", "claude-code", "cross-session", "messaging", "agents", "tmux"]
 }

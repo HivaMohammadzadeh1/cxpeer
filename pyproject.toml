@@ -7,6 +7,7 @@ name = "cxpeer"
 version = "0.1.0"
 description = "Make Codex CLI sessions peers of Claude Code cross-session messaging"
 requires-python = ">=3.11"
+license = {text = "PolyForm-Noncommercial-1.0.0"}
 dependencies = []
 
 [project.optional-dependencies]

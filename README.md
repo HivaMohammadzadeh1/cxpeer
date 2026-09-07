@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="macOS">
   <img src="https://img.shields.io/badge/dependencies-none-0B7A63" alt="zero dependencies">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4A43B5" alt="MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-4A43B5" alt="PolyForm Noncommercial 1.0.0"></a>
 </p>
 
 A running Codex session shows up in Claude Code's `ListAgents`, takes `SendMessage`
@@ -219,4 +219,9 @@ Design notes live in `docs/superpowers/specs/2026-09-07-cxpeer-design.md`.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[PolyForm Noncommercial 1.0.0](LICENSE). Free to use, copy, modify, and share for
+noncommercial purposes: personal projects, research, experiments, teaching, and use
+by educational institutions, public research organizations, charities, and government
+bodies. No warranty, no liability. Any commercial use, including building a product or
+service on it, needs a separate license from the copyright holder; open an issue or
+contact [Hiva Mohammadzadeh](https://github.com/HivaMohammadzadeh1).
