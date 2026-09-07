@@ -34,6 +34,7 @@ RELAY_SEND_TIMEOUT_SECONDS = 2.0
 CODEX_QUEUE_TIMEOUT_SECONDS = 30.0
 UNDELIVERABLE_NOTE = "cxpeer: could not deliver your message to Codex session {name}: {error}"
 EMPTY_TURN_NOTE = "(Codex ended the turn without a final message.)"
+INTERRUPTED_NOTE = "(Codex's turn was interrupted before it answered.)"
 UNANSWERED_NOTE = (
     "cxpeer: Codex session {name} finished turns but none was paired with your message "
     "(msg_id {msg_id}); no reply is coming for it."
@@ -349,7 +350,10 @@ class Bridge:
             LOG.info("turn ended; no peer request to answer")
             return None
         answer = frame.get("last_assistant_message")
-        text = answer if isinstance(answer, str) and answer.strip() else EMPTY_TURN_NOTE
+        if frame.get("reason") == "interrupted":
+            text = INTERRUPTED_NOTE
+        else:
+            text = answer if isinstance(answer, str) and answer.strip() else EMPTY_TURN_NOTE
         if request.reply_sock is None:
             LOG.warning("request %s had no reply address; answer dropped", request.msg_id)
             return None

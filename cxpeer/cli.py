@@ -8,7 +8,7 @@ import sys
 
 from cxpeer import bridge, client, hooks, install, registry, spawn
 
-HOOK_EVENTS = ("session-start", "user-prompt-submit", "stop", "session-end")
+HOOK_EVENTS = ("session-start", "user-prompt-submit", "stop", "interrupt", "session-end")
 
 
 def _cmd_list(args: argparse.Namespace) -> int:

@@ -328,3 +328,13 @@ def test_peers_snapshot_lists_alive_peers_and_is_removed_on_shutdown(bridge, cla
     proc.wait(timeout=5)
     assert not peers_file.exists()
     assert not Path(state["outbox"]).exists()
+
+
+def test_interrupted_turn_tells_the_requester(bridge, claude):
+    _, state = bridge
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-int")], expect_reply=False)
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-int"}], expect_reply=False)
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": None, "reason": "interrupted"}], expect_reply=False)
+    frames = claude.wait_for_frames(2)
+    assert "interrupted before it answered" in frames[1]["message"]["content"]
+    assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["pending"] == 0
