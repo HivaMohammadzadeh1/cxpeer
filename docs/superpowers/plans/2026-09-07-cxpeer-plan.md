@@ -7,38 +7,38 @@ Ground rules
 - File ownership is strict. Only edit the files of your task. `git add` only your files, never `-A`.
 - TDD per task: write the failing test, make it pass, run `pytest tests/<your test>` and paste the output in your update.
 - Tests must never touch `~/.claude/sessions`, `/tmp/cc-socks`, `~/.cxpeer`, or the real `codex`. Use the env overrides from `cxpeer/paths.py` (Task 0).
-- Report progress via SendMessage to `unclave-8b` when a task is done or blocked.
+- Report progress via SendMessage to `the coordinator session` when a task is done or blocked.
 
-## Task 0 (owner: unclave-8b, done first): skeleton
+## Task 0 (owner: the coordinator session, done first): skeleton
 `pyproject.toml`, `cxpeer/__init__.py`, `cxpeer/paths.py`, `tests/conftest.py` with the isolation fixtures
 (`isolated_env` sets the four env vars; `fake_codex` writes a script that appends argv JSON lines to `$CXPEER_HOME/codex_calls.jsonl`).
 
-## Task 1 (owner: unclave-25): `cxpeer/registry.py` + `tests/test_registry.py`
+## Task 1 (owner: engineer session A): `cxpeer/registry.py` + `tests/test_registry.py`
 Implement every function in the spec's registry contract. Tests: register writes both files with the right
 names and modes; `list_peers` marks a record alive only when `procStart` matches (use `os.getpid()` for alive,
 a fake record with wrong procStart for dead); `token_for` finds the key by socket path hash; `resolve` by
 name and by ref; `set_status` bumps `statusUpdatedAt`. Key name hash input is the literal socket path string.
 
-## Task 2 (owner: unclave-25): `cxpeer/wire.py` + `tests/test_wire.py`
+## Task 2 (owner: engineer session A): `cxpeer/wire.py` + `tests/test_wire.py`
 Envelope, user_frame, send_frames, read_lines, strip_envelope. Test send_frames against a UDS server started
 inside the test; assert the auth line comes first and the user frame decodes with msgV 1, priority next.
 
-## Task 3 (owner: unclave-25): `cxpeer/client.py` + `cxpeer/cli.py` (`list`, `send` only) + `tests/test_client.py`
+## Task 3 (owner: engineer session A): `cxpeer/client.py` + `cxpeer/cli.py` (`list`, `send` only) + `tests/test_client.py`
 `find_bridge` selection order from the spec; `send` speaks `cxpeer.relay` to a fake bridge socket in the test and
 raises on `ok=false`; `list` output format `name [ref]  status  cwd`. Leave `bridge`, `hook`, `status`, `install`
-subcommands as `NotImplementedError` stubs so unclave-8b can fill them in without conflicts.
+subcommands as `NotImplementedError` stubs so the coordinator session can fill them in without conflicts.
 
-## Task 4 (owner: unclave-8b): `cxpeer/bridge.py` + `tests/test_bridge.py`
+## Task 4 (owner: the coordinator session): `cxpeer/bridge.py` + `tests/test_bridge.py`
 Registration, auth gate, `user` -> `codex queue` with trailer, pending table, turn_started/turn_ended auto-reply
 to a fake Claude UDS server, relay, ping, shutdown, watch-pid exit.
 
-## Task 5 (owner: cx-wire): `cxpeer/hooks.py` (`run(event, payload)`), `cxpeer/install.py` (`run(dry_run)`), `skills/cxpeer/SKILL.md`, `tests/test_hooks.py`, `tests/test_install.py`
-Hook handlers never fail the turn. `install` merges into `~/.codex/hooks.json` without duplicating. hooks.py reads the bridge state file directly and does not import client.py. cli.py wiring of `hook`/`status`/`install` is done by unclave-8b at integration.
+## Task 5 (owner: engineer session B): `cxpeer/hooks.py` (`run(event, payload)`), `cxpeer/install.py` (`run(dry_run)`), `skills/cxpeer/SKILL.md`, `tests/test_hooks.py`, `tests/test_install.py`
+Hook handlers never fail the turn. `install` merges into `~/.codex/hooks.json` without duplicating. hooks.py reads the bridge state file directly and does not import client.py. cli.py wiring of `hook`/`status`/`install` is done by the coordinator session at integration.
 
-Task 2 is also owned by cx-wire (a session spawned for parallelism).
+Task 2 is also owned by engineer session B (a session spawned for parallelism).
 
-## Task 6 (owner: unclave-8b): `scripts/e2e.sh`, `README.md`
+## Task 6 (owner: the coordinator session): `scripts/e2e.sh`, `README.md`
 tmux-driven manual e2e; README with install, how it works, limits.
 
-Order: 0 -> (1,2,3 by unclave-25 in sequence) and (4,5 by unclave-8b in parallel, coding against the spec
+Order: 0 -> (1,2,3 by engineer session A in sequence) and (4,5 by the coordinator session in parallel, coding against the spec
 contracts) -> integrate -> 6. Integration check: `pytest tests/` green, then e2e.

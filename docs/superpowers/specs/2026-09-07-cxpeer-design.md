@@ -26,7 +26,7 @@ final answer for that turn is forwarded back to the sender automatically.
    ```
    `from` is the reply address. Claude wraps `content` itself before sending:
    ```
-   <cross-session-message from="uds:/tmp/cc-socks/81548.sock" from-name="unclave-8b" from-mode="prompting">
+   <cross-session-message from="uds:/tmp/cc-socks/81548.sock" from-name="claude-main" from-mode="prompting">
    Say LOOP-OK and nothing else.
    </cross-session-message>
    ```

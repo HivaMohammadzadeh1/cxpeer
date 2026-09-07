@@ -13,14 +13,14 @@ import pytest
 from cxpeer import wire
 
 ADDR = "uds:/tmp/cc-socks/81548.sock"
-NAME = "unclave-8b"
+NAME = "claude-main"
 
 
 def test_envelope_matches_claude_format():
     out = wire.envelope("Say LOOP-OK and nothing else.", ADDR, NAME)
     assert out == (
         '<cross-session-message from="uds:/tmp/cc-socks/81548.sock" '
-        'from-name="unclave-8b" from-mode="prompting">\n'
+        'from-name="claude-main" from-mode="prompting">\n'
         "Say LOOP-OK and nothing else.\n"
         "</cross-session-message>"
     )
