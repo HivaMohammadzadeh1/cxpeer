@@ -44,7 +44,7 @@ up() {
       echo "  update prompt: skipping"; keys 2 Enter; update_done=1
     elif [[ -z $trust_done ]] && grep -q "Do you trust the contents" <<<"$screen"; then
       echo "  directory trust prompt: trusting"; keys 1 Enter; trust_done=1
-    elif [[ -z $hooks_done ]] && grep -q "hooks are new or changed" <<<"$screen"; then
+    elif [[ -z $hooks_done ]] && grep -qE "hooks? (is|are) new or changed" <<<"$screen"; then
       echo "  hooks trust prompt: trust all and continue"; keys 2 Enter; hooks_done=1
     fi
     sleep 1
