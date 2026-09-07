@@ -126,6 +126,16 @@ def wait_pending(state: dict, count: int, timeout: float = 10.0) -> None:
     raise AssertionError(f"bridge never reached pending={count}")
 
 
+def wait_ping_field(state: dict, field: str, value, timeout: float = 10.0) -> None:
+    """Block until the bridge's ping reports field == value (frames arrive on separate connections)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True).get(field) == value:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"bridge never reported {field}={value}")
+
+
 def wait_status(state: dict, status: str, timeout: float = 10.0) -> None:
     """Block until the bridge reports `status`; the Stop hook fires seconds after UserPromptSubmit in real use."""
     deadline = time.monotonic() + timeout
@@ -382,7 +392,7 @@ def test_idle_subscription_fires_after_the_turn_with_the_answer_as_detail(bridge
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-s"}], expect_reply=False)
     wait_status(state, "busy")
     talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-7")], expect_reply=False)
-    assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["idle_subscribers"] == 1
+    wait_ping_field(state, "idle_subscribers", 1)
     assert claude.wait_for_frames(1, timeout=1.0) == []  # busy: nothing fires yet
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "PONG  \n done"}], expect_reply=False)
     frames = claude.wait_for_frames(4)  # auth+answer, auth+notice (order between the two sends may vary)
