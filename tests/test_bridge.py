@@ -379,3 +379,15 @@ def test_shutdown_tells_subscribers_the_peer_exited(bridge, claude):
     proc.wait(timeout=5)
     frames = claude.wait_for_frames(2)
     assert frames[1]["action"] == "peer_idle_notice" and frames[1]["state"] == "exited" and frames[1]["orig_msg_id"] == "sub-x"
+
+
+def test_idle_subscription_waits_for_a_queued_message_to_be_answered(bridge, claude):
+    _, state = bridge
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-q")], expect_reply=False)
+    talk(state["sock"], state["token"], [subscribe_frame(claude, "sub-q")], expect_reply=False)
+    assert claude.wait_for_frames(1, timeout=1.0) == []  # queued but not started: no notice yet
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-q"}], expect_reply=False)
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "PONG"}], expect_reply=False)
+    frames = claude.wait_for_frames(4)
+    notices = [f for f in frames if f.get("action") == "peer_idle_notice"]
+    assert len(notices) == 1 and notices[0]["orig_msg_id"] == "sub-q" and notices[0]["detail"] == "PONG"

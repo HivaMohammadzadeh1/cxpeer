@@ -369,7 +369,9 @@ class Bridge:
         mode = frame.get("from_mode") if isinstance(frame.get("from_mode"), str) else None
         with self._lock:
             self.idle_subscriptions[reply_sock] = IdleSubscription(orig, reply_sock, mode)
-            idle_now = self.status == "idle" and self.active is None
+            # A message that was just queued into Codex has not started its turn yet, so
+            # "idle" only counts when nothing is pending either (Claude holds notices the same way).
+            idle_now = self.status == "idle" and self.active is None and not self.pending
         LOG.info("idle subscription from %s (orig %s)%s", reply_sock, orig, "; already idle" if idle_now else "")
         if idle_now:
             self._fire_idle_notices("idle", None)
