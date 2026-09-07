@@ -28,10 +28,16 @@ from .paths import bridges_dir, codex_bin, logs_dir, sock_dir
 LOG = logging.getLogger("cxpeer.bridge")
 
 CONNECTION_IDLE_SECONDS = 5.0
-WATCH_INTERVAL_SECONDS = 5.0
+WATCH_INTERVAL_SECONDS = 4.0
+PENDING_TTL_SECONDS = float(os.environ.get("CXPEER_PENDING_TTL_SECONDS") or 15 * 60)
+RELAY_SEND_TIMEOUT_SECONDS = 2.0
 CODEX_QUEUE_TIMEOUT_SECONDS = 30.0
 UNDELIVERABLE_NOTE = "cxpeer: could not deliver your message to Codex session {name}: {error}"
 EMPTY_TURN_NOTE = "(Codex ended the turn without a final message.)"
+UNANSWERED_NOTE = (
+    "cxpeer: Codex session {name} finished turns but none was paired with your message "
+    "(msg_id {msg_id}); no reply is coming for it."
+)
 
 
 def default_name(cwd: str, thread: str) -> str:
@@ -123,11 +129,12 @@ class Bridge:
         assert self._server is not None, "start() before serve_forever()"
         next_watch = time.monotonic()
         while not self._stop.is_set():
-            if self.watch_pid is not None and time.monotonic() >= next_watch:
+            if time.monotonic() >= next_watch:
                 next_watch = time.monotonic() + WATCH_INTERVAL_SECONDS
-                if not pid_alive(self.watch_pid):
+                if self.watch_pid is not None and not pid_alive(self.watch_pid):
                     LOG.info("watched pid %s is gone; shutting down", self.watch_pid)
                     break
+                self._expire_pending()
             try:
                 conn, _ = self._server.accept()
             except socket.timeout:
@@ -154,10 +161,23 @@ class Bridge:
             self._server.close()
         LOG.info("bridge %s down", self.name)
 
+    def _expire_pending(self) -> None:
+        """Tell senders whose request never paired with a turn that no reply is coming."""
+        cutoff = time.time() - PENDING_TTL_SECONDS
+        with self._lock:
+            stale = [r for r in self.pending.values() if r.queued_at < cutoff and r.msg_id != self.active]
+            for request in stale:
+                del self.pending[request.msg_id]
+        for request in stale:
+            LOG.warning("request %s from %s expired unanswered", request.msg_id, request.from_name)
+            if request.reply_sock is not None:
+                self._try_send(request.reply_sock, UNANSWERED_NOTE.format(name=self.name, msg_id=request.msg_id))
+
     def _write_state(self) -> None:
         bridges_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
         state = {
             "pid": self.pid,
+            "proc_start": registry.proc_start(self.pid),
             "sock": self.sock_path,
             "token": self.token,
             "name": self.name,
@@ -294,7 +314,7 @@ class Bridge:
         if peer.sock == self.sock_path:
             return {"ok": False, "error": f"{peer.name} is this bridge; refusing to message itself"}
         try:
-            self._send(peer.sock, text)
+            self._send(peer.sock, text, timeout=RELAY_SEND_TIMEOUT_SECONDS)
         except (LookupError, OSError) as exc:
             return {"ok": False, "error": f"send to {peer.name} failed: {exc}"}
         LOG.info("relayed %d chars to %s", len(text), peer.name)
@@ -326,13 +346,13 @@ class Bridge:
             return f"codex queue exited {result.returncode}: {detail[-1] if detail else 'no output'}"
         return None
 
-    def _send(self, peer_sock: str, text: str) -> None:
+    def _send(self, peer_sock: str, text: str, timeout: float = 5.0) -> None:
         """Deliver `text` to a Claude peer socket as a message authored by this bridge."""
         token = registry.token_for(peer_sock)
         if token is None:
             raise LookupError(f"no auth key found for peer socket {peer_sock}")
         frame = wire.user_frame(wire.envelope(text, self.address, self.name), self.address)
-        wire.send_frames(peer_sock, token, [frame])
+        wire.send_frames(peer_sock, token, [frame], timeout=timeout)
 
     def _try_send(self, peer_sock: str, text: str) -> None:
         # Server-thread boundary: the peer may have exited, and there is nobody left to

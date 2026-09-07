@@ -14,7 +14,7 @@ import sys
 import time
 from typing import Callable
 
-from . import paths, wire
+from . import paths, registry, wire
 
 MSG_ID_RE = re.compile(r"\[cxpeer msg_id=([^\]\s]+)\]")
 Lookup = Callable[[int], "tuple[int, str] | None"]
@@ -37,7 +37,7 @@ def _session_start(payload: dict) -> None:
     thread = payload["session_id"]
     cwd = payload.get("cwd") or os.getcwd()
     state = _read_bridge(thread)
-    if state and _alive(state.get("pid")):
+    if state and _bridge_alive(state):
         _log(f"session-start: bridge for {thread} already running (pid {state['pid']})")
         return
     codex_pid = find_codex_pid(os.getppid())
@@ -90,6 +90,17 @@ def _read_bridge(thread: str) -> dict | None:
     if not path.exists():
         return None
     return json.loads(path.read_text())
+
+
+def _bridge_alive(state: dict) -> bool:
+    """True when the pid in a bridge state file is still that bridge, not a recycled pid."""
+    pid = state.get("pid")
+    if not _alive(pid):
+        return False
+    expected = state.get("proc_start")
+    if expected is None:  # state written before proc_start was recorded
+        return True
+    return registry.proc_start(int(pid)) == expected
 
 
 def _alive(pid: object) -> bool:

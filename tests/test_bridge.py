@@ -264,3 +264,19 @@ def test_bridge_exits_when_watched_pid_dies(isolated_env, fake_codex):
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+def test_stale_pending_request_expires_with_a_note(isolated_env, claude, fake_codex, monkeypatch):
+    monkeypatch.setenv("CXPEER_PENDING_TTL_SECONDS", "1")
+    proc = start_bridge()
+    try:
+        state = wait_for_state(isolated_env["home"])
+        assert state["proc_start"]
+        talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", "m-old")], expect_reply=False)
+        frames = claude.wait_for_frames(2, timeout=12)
+        content = frames[1]["message"]["content"]
+        assert "none was paired with your message (msg_id m-old)" in content
+        assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["pending"] == 0
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
