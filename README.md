@@ -1,6 +1,6 @@
 <h1 align="center">cxpeer</h1>
 
-<p align="center">Codex CLI sessions as first-class peers in Claude Code's cross-session messaging.</p>
+<p align="center">Codex CLI sessions as peers in Claude Code's cross-session messaging.</p>
 
 <p align="center">
   <a href="https://github.com/HivaMohammadzadeh1/cxpeer/actions/workflows/test.yml"><img src="https://github.com/HivaMohammadzadeh1/cxpeer/actions/workflows/test.yml/badge.svg" alt="CI"></a>
@@ -12,8 +12,8 @@
 
 A running Codex session shows up in Claude Code's `ListAgents`, takes `SendMessage`
 like any other session, and its answer comes back automatically when the turn ends.
-Codex can message Claude sessions too. No daemon, no polling: three files, one Unix
-socket, and Codex's own hooks.
+Codex can message Claude sessions too. There is no daemon and no polling. It uses three
+files, one Unix socket, and Codex's own hooks.
 
 <p align="center"><img src="docs/images/topology.png" width="960" alt="Topology: Claude sessions, the bridge, the shared registry, and the Codex session"></p>
 
@@ -97,8 +97,8 @@ Claude's side it is just another peer.
    If Codex exits without firing the hook, the bridge notices its watched pid is gone
    and cleans up within a few seconds.
 
-Measured on 2026-09-07 with a real Codex TUI: a `SendMessage` was answered in 8 seconds
-end to end, most of it Codex thinking; a `cxpeer send` run inside Codex arrived in the
+Measured on 2026-09-07 with a real Codex TUI, a `SendMessage` was answered in 8 seconds
+end to end, most of it Codex thinking. A `cxpeer send` run inside Codex arrived in the
 Claude session 10 seconds after the request went in.
 
 ## Commands
@@ -116,8 +116,8 @@ Claude session 10 seconds after the request went in.
 ## Inside the bridge
 
 About 400 lines of standard library in `cxpeer/bridge.py`. The main thread binds the
-socket, registers, and runs the accept loop; each connection gets a thread that checks
-the auth line and dispatches frames; handlers share one small state table under a lock.
+socket, registers, and runs the accept loop. Each connection gets a thread that checks
+the auth line and dispatches frames. Handlers share one small state table under a lock.
 
 <p align="center"><img src="docs/images/bridge-internals.png" width="960" alt="Bridge internals: lifecycle thread, per-connection threads, and shared state"></p>
 
@@ -160,9 +160,9 @@ cannot be opened, while reads of the home directory work and writes to `/tmp`,
 `send` drops `{id, to, text}` into `/tmp/cxpeer-<uid>/<thread>/`; the bridge polls that
 directory every second, relays, and writes `<id>.result.json` for the caller. `list`
 reads a peers snapshot the bridge refreshes every four seconds (a snapshot older than
-15 seconds counts as no bridge). Detection is by behaviour, not configuration: a socket
-`PermissionError` or an unusable `ps` selects the file path. Outside the sandbox the
-same commands use the socket directly. A bridge started by an older cxpeer has no
+15 seconds counts as no bridge). The client picks the file path when a socket connect
+raises `PermissionError` or when `ps` cannot run; there is no configuration flag for it.
+Outside the sandbox the same commands use the socket directly. A bridge started by an older cxpeer has no
 outbox; a sandboxed `send` then says so, and restarting the Codex session fixes it.
 
 ## Configuration
@@ -206,8 +206,8 @@ Design notes live in `docs/superpowers/specs/2026-09-07-cxpeer-design.md`.
 ## Limits
 
 - cxpeer builds on an undocumented Claude Code internal (`peerProtocol` 1). A Claude
-  Code update can break it without warning. The tests pin today's contract so a break
-  is loud.
+  Code update can break it without warning. The tests pin today's contract, so a break
+  shows up as failing tests rather than silent drops.
 - macOS only. Liveness uses `ps -o lstart=` and the registry assumes a darwin pid
   domain. Windows is not supported.
 - Peer messages are plain text between processes of the same user. Outbox files under
