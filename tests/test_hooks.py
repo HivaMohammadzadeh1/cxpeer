@@ -151,6 +151,7 @@ def popen(monkeypatch):
     monkeypatch.setattr(hooks, "ps_lookup", lambda pid: None)
     monkeypatch.setattr(hooks, "_sleep", lambda s: None)
     monkeypatch.delenv("CXPEER_PEER_NAME", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
     return FakePopen
 
 
@@ -257,3 +258,17 @@ def test_ps_lookup_reads_real_parent_and_comm():
 
 def test_ps_lookup_returns_none_for_bogus_pid():
     assert hooks.ps_lookup(2**22 - 1) is None
+
+
+def test_spawn_bridge_passes_codex_home_through_and_logs_it(isolated_env, popen, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", "/tmp/acct2")
+    hooks.run("session-start", {"session_id": SID, "cwd": "/tmp"})
+    _, kw = popen.calls[0]
+    effective_env = kw["env"] if kw.get("env") is not None else os.environ
+    assert effective_env.get("CODEX_HOME") == "/tmp/acct2"
+    assert "CODEX_HOME=/tmp/acct2" in (paths.logs_dir() / "hooks.log").read_text()
+
+
+def test_session_start_logs_the_default_codex_home_when_unset(isolated_env, popen):
+    hooks.run("session-start", {"session_id": SID, "cwd": "/tmp"})
+    assert "CODEX_HOME=~/.codex (default)" in (paths.logs_dir() / "hooks.log").read_text()

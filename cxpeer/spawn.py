@@ -32,7 +32,8 @@ def tmux_bin() -> str:
 
 
 def run(kind: str, cwd: str, name: str | None, prompt: str | None, extra_args: list[str],
-        peer_name: str | None = None, wait: bool = False, timeout: float = 60.0) -> int:
+        peer_name: str | None = None, wait: bool = False, timeout: float = 60.0,
+        codex_home: str | None = None) -> int:
     if kind not in KINDS:
         print(f"cxpeer spawn: unknown kind {kind!r} (expected codex or claude)", file=sys.stderr)
         return 2
@@ -50,6 +51,8 @@ def run(kind: str, cwd: str, name: str | None, prompt: str | None, extra_args: l
         command = shlex.join(_command(kind, name or session, prompt, extra_args))
         if peer_name:
             command = f"CXPEER_PEER_NAME={shlex.quote(peer_name)} {command}"
+        if codex_home and kind == "codex":  # a second Codex account: its own auth, config, hooks, queue
+            command = f"CODEX_HOME={shlex.quote(os.path.abspath(codex_home))} {command}"
         res = _tmux(tmux, "new-session", "-d", "-s", session, "-c", cwd, command)
         if res.returncode != 0:
             print(f"cxpeer spawn: tmux new-session failed: {res.stderr.strip()}", file=sys.stderr)

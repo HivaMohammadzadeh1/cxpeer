@@ -109,3 +109,45 @@ def test_skill_text_covers_the_commands_and_the_trust_rule():
     assert 'cxpeer send --to NAME "text"' in text
     assert "forwarded" in text
     assert "not authority" in text
+
+
+# --- several Codex homes ------------------------------------------------------------------
+
+def test_explicit_codex_home_beats_env_and_leaves_it_alone(codex_home, tmp_path):
+    other = tmp_path / "acct2"
+    assert install.run(dry_run=False, codex_home=other) == 0
+    data = json.loads((other / "hooks.json").read_text())
+    assert set(data["hooks"]) == set(EVENTS)
+    assert (other / "skills" / "cxpeer" / "SKILL.md").read_text() == PKG_SKILL.read_text()
+    assert json.loads((codex_home / "hooks.json").read_text()) == EXISTING
+
+
+def test_codex_home_resolution_order(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CXPEER_CODEX_HOME", raising=False)
+    assert install.codex_home() == tmp_path / ".codex"
+    monkeypatch.setenv("CXPEER_CODEX_HOME", str(tmp_path / "from-env"))
+    assert install.codex_home() == tmp_path / "from-env"
+    assert install.codex_home(tmp_path / "explicit") == tmp_path / "explicit"
+
+
+def test_installed_homes_lists_default_then_named_accounts_with_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CXPEER_CODEX_HOME", raising=False)
+    (tmp_path / ".codex").mkdir()
+    for name in (".codex-work", ".codex_personal", ".codex-empty", ".codexfoo"):
+        (tmp_path / name).mkdir()
+    for name in (".codex_personal", ".codex-work", ".codexfoo"):
+        (tmp_path / name / "config.toml").write_text("")
+    (tmp_path / ".codex-file").write_text("")  # a file, not a home
+    assert install.installed_homes() == [tmp_path / ".codex", tmp_path / ".codex-work", tmp_path / ".codex_personal"]
+
+
+def test_installed_homes_always_starts_with_the_default_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CXPEER_CODEX_HOME", str(tmp_path / ".codex-work"))
+    (tmp_path / ".codex-work").mkdir()
+    (tmp_path / ".codex-work" / "config.toml").write_text("")
+    (tmp_path / ".codex-other").mkdir()
+    (tmp_path / ".codex-other" / "config.toml").write_text("")
+    assert install.installed_homes() == [tmp_path / ".codex-work", tmp_path / ".codex-other"]

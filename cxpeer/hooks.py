@@ -65,7 +65,8 @@ def _spawn_bridge(thread: str, cwd: str, why: str) -> None:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    _log(f"{why}: spawned bridge pid {proc.pid} for {thread}, watching codex pid {codex_pid}")
+    home = os.environ.get("CODEX_HOME") or "~/.codex (default)"
+    _log(f"{why}: spawned bridge pid {proc.pid} for {thread}, watching codex pid {codex_pid}, CODEX_HOME={home}")
 
 
 def _user_prompt_submit(payload: dict) -> None:

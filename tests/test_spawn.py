@@ -279,3 +279,24 @@ def test_wait_for_claude_only_waits_for_the_pane_to_settle(fake_tmux, clock, pro
     assert fake_tmux.send_keys() == []
     assert out.startswith("started cx-cl (claude)")
     assert 3 <= len([c for c in fake_tmux.calls() if c[0] == "capture-pane"]) <= 4
+
+
+# --- codex_home ---------------------------------------------------------------------------
+
+def test_codex_home_is_prefixed_before_the_codex_command(fake_tmux, proj, tmp_path):
+    home = tmp_path / "acct two"
+    spawn.run("codex", str(proj), "job", "hi", [], codex_home=str(home))
+    cmd = fake_tmux.new_session()[-1]
+    assert cmd == f"CODEX_HOME={shlex.quote(str(home))} CXPEER_PEER_NAME=job codex hi"
+    assert shlex.split(cmd)[0] == f"CODEX_HOME={home}"
+
+
+def test_codex_home_is_made_absolute(fake_tmux, proj, monkeypatch):
+    monkeypatch.chdir(proj.parent)
+    spawn.run("codex", str(proj), None, None, [], codex_home="acct")
+    assert fake_tmux.new_session()[-1] == f"CODEX_HOME={shlex.quote(str(proj.parent / 'acct'))} codex"
+
+
+def test_codex_home_is_ignored_for_claude(fake_tmux, proj, tmp_path):
+    spawn.run("claude", str(proj), "cl", None, [], codex_home=str(tmp_path / "acct"))
+    assert fake_tmux.new_session()[-1] == "CXPEER_PEER_NAME=cl claude -n cl"

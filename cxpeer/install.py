@@ -23,8 +23,25 @@ def skill_text() -> str:
     return files("cxpeer").joinpath("data/SKILL.md").read_text(encoding="utf-8")
 
 
-def codex_home() -> Path:
+def codex_home(explicit: Path | None = None) -> Path:
+    """Explicit path beats CXPEER_CODEX_HOME beats ~/.codex."""
+    if explicit is not None:
+        return Path(explicit)
     return Path(os.environ.get("CXPEER_CODEX_HOME") or Path.home() / ".codex")
+
+
+resolve_codex_home = codex_home  # alias for use where a parameter is also named codex_home
+
+
+def installed_homes() -> list[Path]:
+    """The default home first, then every ~/.codex-* or ~/.codex_* directory that has a
+    config.toml, sorted by name. One entry per Codex account on this machine."""
+    default = codex_home()
+    extras = sorted(
+        p for pattern in (".codex-*", ".codex_*") for p in Path.home().glob(pattern)
+        if p.is_dir() and (p / "config.toml").is_file() and p != default
+    )
+    return [default, *extras]
 
 
 def hook_command(name: str) -> str:
@@ -53,8 +70,8 @@ def _find_ours(groups: list, name: str) -> dict | None:
     return None
 
 
-def run(dry_run: bool) -> int:
-    home = codex_home()
+def run(dry_run: bool, codex_home: Path | None = None) -> int:
+    home = resolve_codex_home(codex_home)
     hooks_path = home / "hooks.json"
     skill_path = home / "skills" / "cxpeer" / "SKILL.md"
 
