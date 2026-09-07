@@ -90,7 +90,7 @@ Claude session <──user frame─── bridge <──cxpeer.relay (cxpeer sen
 - `strip_envelope(content) -> tuple[str, str | None, str | None]` returns (text, from_addr, from_name) if wrapped.
 
 `cxpeer/bridge.py` (`cxpeer bridge --thread ID --cwd DIR [--watch-pid PID] [--name NAME]`)
-- Registers itself (name default `codex-<basename(cwd)>-<first 2 hex of thread id>`), writes bridge state
+- Registers itself (name default `codex-<basename(cwd)>-<last 2 hex of thread id>`; thread ids are UUIDv7 so the leading hex is a shared timestamp), writes bridge state
   `{pid, sock, token, name, cwd, thread, started}` to `state_dir()/bridges/<thread>.json`.
 - Serves the UDS. Every connection must start with an auth line matching its own token; else drop.
 - Frame handling:

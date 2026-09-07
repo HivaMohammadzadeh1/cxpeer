@@ -18,5 +18,8 @@ cxpeer = "cxpeer.cli:main"
 [tool.setuptools.packages.find]
 include = ["cxpeer*"]
 
+[tool.setuptools.package-data]
+cxpeer = ["data/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
