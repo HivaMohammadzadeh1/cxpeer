@@ -1,4 +1,9 @@
-"""Narrate the complete Claude-side journey through a real cxpeer session."""
+"""Narrate the complete Claude-side journey through a real cxpeer session.
+
+Run from a checkout with cxpeer installed. On a terminal it narrates: typed commands, a live
+timer while Codex works, output revealed line by line. With --plain (or when stdout is not a
+terminal) it prints each step as one block. --record writes a Markdown transcript.
+"""
 
 from __future__ import annotations
 
@@ -8,73 +13,65 @@ import secrets
 import shlex
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
 from cxpeer import registry, wire
 
 try:  # Support both ``python demo/journey.py`` and imports from the repository root.
-    from ._peer import (
-        build_frames,
-        is_answer,
-        is_idle_notice,
-        register_fake_peer,
-        parse_peer_name,
-        parse_tmux_session,
-    )
+    from ._peer import build_frames, is_answer, is_idle_notice, register_fake_peer, parse_peer_name, parse_tmux_session
 except ImportError:
-    from _peer import (
-        build_frames,
-        is_answer,
-        is_idle_notice,
-        register_fake_peer,
-        parse_peer_name,
-        parse_tmux_session,
-    )
+    from _peer import build_frames, is_answer, is_idle_notice, register_fake_peer, parse_peer_name, parse_tmux_session
 
 
 TASK_ONE = "List the three largest source files under cxpeer/ with their line counts, one line each."
-TASK_TWO = 'Run `cxpeer list`, then run `cxpeer send --to claude-journey "hello from inside the Codex sandbox"`, and reply with both exit codes.'
+TASK_TWO = 'Run `cxpeer send --to claude-journey "hello from inside the Codex sandbox"` and reply with its exit code.'
+TOTAL_STEPS = 6
 
 
-def step_record(
-    number: int,
-    title: str,
-    command: str,
-    output: str,
-    elapsed: float,
-    result: str,
-) -> dict:
+# ----- records and transcript (pure, unit-tested) -----
+
+def step_record(number: int, title: str, command: str, output: str, elapsed: float, result: str) -> dict:
     """Create the serializable record used for console and Markdown transcripts."""
-    return {
-        "number": number,
-        "title": title,
-        "command": command,
-        "output": output.rstrip("\n"),
-        "elapsed": float(elapsed),
-        "result": result,
-    }
+    return {"number": number, "title": title, "command": command, "output": output.rstrip("\n"),
+            "elapsed": float(elapsed), "result": result}
 
 
 def format_step_record(record: dict) -> str:
-    """Format one numbered journey step for the terminal."""
+    """Format one numbered journey step for a plain terminal."""
     output = record["output"] or "(no output)"
-    return (
-        f"\n=== Step {record['number']}: {record['title']} ===\n"
-        f"Command:\n{record['command']}\n"
-        f"Output:\n{output}\n"
-        f"Elapsed: {record['elapsed']:.2f}s\n"
-        f"Result: {record['result']}"
-    )
+    return (f"\n=== Step {record['number']}: {record['title']} ===\n"
+            f"Command:\n{record['command']}\nOutput:\n{output}\n"
+            f"Elapsed: {record['elapsed']:.2f}s\nResult: {record['result']}")
 
 
 def mark_peer_line(output: str, peer_name: str) -> str:
     """Mark the line for ``peer_name`` while preserving every line of ``cxpeer list``."""
+    return "\n".join(f">>> {line}" if peer_name in line else f"    {line}" for line in output.splitlines())
+
+
+def focus_peer_lines(output: str, names: tuple[str, ...]) -> str:
+    """Keep only the lines that mention one of ``names``; other sessions on the machine are not the story."""
     lines = output.splitlines()
-    return "\n".join(
-        f">>> {line}" if peer_name in line else f"    {line}"
-        for line in lines
-    )
+    kept = [line for line in lines if any(name in line for name in names)]
+    omitted = len(lines) - len(kept)
+    if omitted:
+        kept.append(f"({omitted} other live session{'s' if omitted != 1 else ''} on this machine omitted)")
+    return "\n".join(kept)
+
+
+def focus_doctor_output(output: str, names: tuple[str, ...]) -> str:
+    """Hide live-bridges lines for sessions that are not part of the journey."""
+    kept, omitted = [], 0
+    for line in output.splitlines():
+        if "live-bridges:" in line and not any(name in line for name in names):
+            omitted += 1
+            continue
+        kept.append(line)
+    if omitted:
+        kept.append(f"ok  live-bridges: ({omitted} other bridge{'s' if omitted != 1 else ''} on this machine omitted)")
+    return "\n".join(kept)
 
 
 def write_markdown(path: Path, records: list[dict]) -> None:
@@ -82,42 +79,143 @@ def write_markdown(path: Path, records: list[dict]) -> None:
     parts = ["# cxpeer user journey", ""]
     for record in records:
         output = record["output"] or "(no output)"
-        parts.extend(
-            [
-                f"## Step {record['number']}: {record['title']}",
-                "",
-                "Command:",
-                "```text",
-                record["command"],
-                "```",
-                "",
-                "Output:",
-                "```text",
-                output,
-                "```",
-                "",
-                f"Elapsed: {record['elapsed']:.2f}s",
-                f"Result: {record['result']}",
-                "",
-            ]
-        )
-    parts.append("## Summary")
-    parts.extend(["", "| Step | Result | Seconds |", "| --- | --- | ---: |"])
-    parts.extend(
-        f"| {r['number']} | {r['result']} | {r['elapsed']:.2f} |"
-        for r in records
-    )
+        parts.extend([f"## Step {record['number']}: {record['title']}", "", "Command:", "```text", record["command"], "```",
+                      "", "Output:", "```text", output, "```", "", f"Elapsed: {record['elapsed']:.2f}s",
+                      f"Result: {record['result']}", ""])
+    parts.extend(["## Summary", "", "| Step | Result | Seconds |", "| --- | --- | ---: |"])
+    parts.extend(f"| {r['number']} | {r['result']} | {r['elapsed']:.2f} |" for r in records)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(parts) + "\n")
 
+
+# ----- narration -----
+
+class Narrator:
+    """Terminal presentation. Every method is a no-op-ish plain print when colour is off."""
+
+    SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self, live: bool, typing_delay: float = 0.014, line_delay: float = 0.035) -> None:
+        self.live = live
+        self.typing_delay = typing_delay if live else 0.0
+        self.line_delay = line_delay if live else 0.0
+
+    def c(self, text: str, *codes: str) -> str:
+        if not self.live:
+            return text
+        table = {"bold": "1", "dim": "2", "cyan": "36", "yellow": "33", "green": "32", "red": "31", "magenta": "35", "blue": "34"}
+        return "".join(f"\x1b[{table[k]}m" for k in codes) + text + "\x1b[0m"
+
+    def banner(self) -> None:
+        lines = ["cxpeer · a Claude session talks to a Codex session",
+                 "left: the Claude side, played by demo/journey.py",
+                 "right: the Codex TUI receiving the messages"]
+        width = max(len(l) for l in lines) + 4
+        print(self.c("┌" + "─" * width + "┐", "cyan"))
+        for i, l in enumerate(lines):
+            print(self.c("│  ", "cyan") + self.c(l.ljust(width - 4), "bold" if i == 0 else "dim") + self.c("  │", "cyan"))
+        print(self.c("└" + "─" * width + "┘", "cyan"))
+        self.pause(1.2)
+
+    def step(self, n: int, title: str) -> None:
+        print()
+        print(self.c(f"── step {n} of {TOTAL_STEPS} · {title} ", "bold", "cyan") + self.c("─" * max(4, 70 - len(title)), "cyan"))
+        self.pause(0.6)
+
+    def command(self, text: str) -> None:
+        sys.stdout.write(self.c("$ ", "dim"))
+        sys.stdout.flush()
+        for ch in text:
+            sys.stdout.write(self.c(ch, "yellow"))
+            sys.stdout.flush()
+            time.sleep(self.typing_delay)
+        print()
+        self.pause(0.3)
+
+    def send(self, to: str, text: str) -> None:
+        print(self.c("→ ", "magenta") + self.c(f"to {to}: ", "magenta", "bold") + self.c(f'"{text}"', "magenta"))
+        self.pause(0.4)
+
+    def note(self, text: str) -> None:
+        print(self.c("  " + text, "dim"))
+        self.pause(0.3)
+
+    def lines(self, text: str, highlight: str | None = None) -> None:
+        for line in text.splitlines():
+            if highlight and highlight in line:
+                print(self.c("  " + line, "green", "bold"))
+            elif line.startswith(("ok ", "ok\t")):
+                print("  " + self.c(line[:2], "green") + line[2:])
+            elif line.startswith("FAIL"):
+                print("  " + self.c(line, "red"))
+            else:
+                print("  " + line)
+            time.sleep(self.line_delay)
+
+    def received(self, label: str, text: str, seconds: float) -> None:
+        print(self.c("← ", "green") + self.c(f"{label} ", "green", "bold") + self.c(f"(+{seconds:.1f} s)", "dim"))
+        self.lines(text)
+
+    def wait(self, label: str, poll, timeout: float):
+        """Call poll(0.2) until it returns a truthy value or timeout; show a live timer meanwhile."""
+        started = time.monotonic()
+        i = 0
+        while True:
+            found = poll(0.2)
+            elapsed = time.monotonic() - started
+            if found or elapsed >= timeout:
+                if self.live:
+                    sys.stdout.write("\r\x1b[2K")
+                    sys.stdout.flush()
+                return found
+            if self.live:
+                sys.stdout.write("\r" + self.c(f"  {self.SPIN[i % len(self.SPIN)]} {label} … {elapsed:5.1f} s", "dim"))
+                sys.stdout.flush()
+            i += 1
+
+    def result(self, ok: bool, elapsed: float) -> None:
+        mark = self.c("✓ ok", "green", "bold") if ok else self.c("✗ failed", "red", "bold")
+        print(f"  {mark} " + self.c(f"{elapsed:.1f} s", "dim"))
+        self.pause(0.8)
+
+    def summary(self, records: list[dict], total: float) -> None:
+        print()
+        print(self.c("summary", "bold", "cyan"))
+        for r in records:
+            mark = self.c("✓", "green") if r["result"] == "ok" else self.c("✗", "red")
+            print(f"  {mark} step {r['number']}  {r['title']:<44} {r['elapsed']:6.1f} s")
+        print(self.c(f"  total {total:.1f} s", "dim"))
+
+    def pause(self, seconds: float) -> None:
+        if self.live:
+            time.sleep(seconds)
+
+
+# ----- the journey -----
 
 def _run_command(argv: list[str], cwd: Path) -> tuple[int, str]:
     try:
         result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
     except OSError as exc:
         return 127, str(exc)
-    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
-    return result.returncode, output
+    return result.returncode, "\n".join(part for part in (result.stdout, result.stderr) if part)
+
+
+def _run_command_with_timer(narrator: Narrator, label: str, argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+    box: dict = {}
+
+    def target() -> None:
+        box["result"] = _run_command(argv, cwd)
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+
+    def poll(step: float):
+        thread.join(step)
+        return box.get("result")
+
+    result = narrator.wait(label, poll, timeout + 15)
+    return result if result else (124, f"timed out after {timeout + 15:.0f}s")
 
 
 def _json_line(frame: dict) -> str:
@@ -125,20 +223,16 @@ def _json_line(frame: dict) -> str:
 
 
 def _wire_command(sock_path: str, token: str, first: dict, second: dict | None = None) -> str:
-    auth = {"type": "auth", "token": "<peer token>"}  # the real token is sent, never printed
-    lines = [
-        f"connection 1 -> {sock_path}",
-        _json_line(auth),
-        _json_line(first),
-    ]
+    """The frames as sent, for the transcript. The real token is sent, never printed."""
+    auth = {"type": "auth", "token": "<peer token>"}
+    lines = [f"connection 1 -> {sock_path}", _json_line(auth), _json_line(first)]
     if second is not None:
-        lines.extend(["connection 2 -> " + sock_path, _json_line(auth), _json_line(second)])
+        lines.extend([f"connection 2 -> {sock_path}", _json_line(auth), _json_line(second)])
     return "\n".join(lines)
 
 
 def _content(frame: dict) -> str:
-    raw = frame.get("message", {}).get("content", "")
-    text, _, _ = wire.strip_envelope(raw)
+    text, _, _ = wire.strip_envelope(frame.get("message", {}).get("content", ""))
     return text
 
 
@@ -146,154 +240,168 @@ def _is_relay(frame: dict) -> bool:
     return is_answer(frame) and "hello from inside" in _content(frame)
 
 
-def _print_record(records: list[dict], record: dict) -> None:
-    records.append(record)
-    print(format_step_record(record), flush=True)
-
-
-def _summary(records: list[dict]) -> None:
-    print("\nSummary")
-    print("| Step | Result | Seconds |")
-    print("| --- | --- | ---: |")
-    for record in records:
-        print(f"| {record['number']} | {record['result']} | {record['elapsed']:.2f} |")
-
-
-def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root: Path) -> int:
+def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root: Path, narrator: Narrator) -> int:
     records: list[dict] = []
     fake = register_fake_peer("claude-journey", str(repo_root))
     session: str | None = None
     peer_name: str | None = None
     started = time.monotonic()
-    step4_ok = False
-    step5_ok = False
+    step4_ok = step5_ok = False
 
+    def finish(record: dict) -> None:
+        records.append(record)
+        if narrator.live:
+            narrator.result(record["result"] == "ok", record["elapsed"])
+        else:
+            print(format_step_record(record), flush=True)
+
+    if narrator.live:
+        narrator.banner()
     try:
-        step_started = time.monotonic()
+        # 1
+        narrator.step(1, "Check the install")
+        narrator.command("cxpeer doctor")
+        t0 = time.monotonic()
         code, output = _run_command(["cxpeer", "doctor"], repo_root)
-        _print_record(records, step_record(1, "Check the install", "cxpeer doctor", output, time.monotonic() - step_started,
-                                           "ok" if code == 0 else "failed"))
+        output = focus_doctor_output(output, ("claude-journey", "codex-journey"))
+        narrator.lines(output)
+        finish(step_record(1, "Check the install", "cxpeer doctor", output, time.monotonic() - t0, "ok" if code == 0 else "failed"))
 
+        # 2
+        narrator.step(2, "Start a Codex peer from a Claude session")
         peer_name = f"codex-journey-{secrets.token_hex(2)}"
-        spawn_command = [
-            "cxpeer", "spawn", "codex", "--cwd", str(repo_root), "--peer-name", peer_name,
-            "--prompt", "Say READY and nothing else.", "--wait", "--timeout", str(max(1, int(timeout))),
-        ]
-        step_started = time.monotonic()
-        code, output = _run_command(spawn_command, repo_root)
+        spawn = ["cxpeer", "spawn", "codex", "--cwd", str(repo_root), "--peer-name", peer_name,
+                 "--prompt", "Say READY and nothing else.", "--wait", "--timeout", str(max(1, int(timeout)))]
+        shown = ["cxpeer", "spawn", "codex", "--peer-name", peer_name, "--prompt", "Say READY and nothing else.", "--wait"]
+        narrator.command(shlex.join(shown))
+        narrator.note("starts codex in tmux, answers its startup prompts, submits the prompt, waits for the peer")
+        t0 = time.monotonic()
+        code, output = _run_command_with_timer(narrator, "starting Codex", spawn, repo_root, timeout)
         try:
             session = parse_tmux_session(output)
             peer_name = parse_peer_name(output)
         except ValueError as exc:
             output = f"{output}\n{exc}" if output else str(exc)
             code = code or 1
-        _print_record(records, step_record(2, "Start a Codex peer from a Claude session",
-                                           shlex.join(spawn_command), output, time.monotonic() - step_started,
-                                           "ok" if code == 0 else "failed"))
+        narrator.lines(output)
+        finish(step_record(2, "Start a Codex peer from a Claude session", shlex.join(spawn), output, time.monotonic() - t0,
+                           "ok" if code == 0 else "failed"))
 
-        step_started = time.monotonic()
+        # 3
+        narrator.step(3, "Claude sees the new peer")
+        narrator.command("cxpeer list")
+        narrator.note("the same list a Claude session gets from ListAgents")
+        t0 = time.monotonic()
         code, list_output = _run_command(["cxpeer", "list"], repo_root)
-        marked = mark_peer_line(list_output, peer_name) if peer_name else list_output
+        focused = focus_peer_lines(list_output, ("claude-journey", peer_name or "codex-journey"))
+        marked = mark_peer_line(focused, peer_name) if peer_name else focused
+        narrator.lines(focused, highlight=peer_name)
         list_ok = code == 0 and bool(peer_name) and peer_name in list_output
-        _print_record(records, step_record(3, "Claude sees the new peer", "cxpeer list", marked,
-                                           time.monotonic() - step_started, "ok" if list_ok else "failed"))
+        finish(step_record(3, "Claude sees the new peer", "cxpeer list", marked, time.monotonic() - t0, "ok" if list_ok else "failed"))
 
         if code == 0 and peer_name:
             receiver = registry.resolve(peer_name)
             receiver_token = registry.token_for(receiver.sock)
-            if receiver_token:
-                own_address = fake.address
+            if not receiver_token:
+                raise LookupError(f"could not read the token for {peer_name}")
+            own_address = fake.address
 
-                step_started = time.monotonic()
-                request, idle = build_frames(TASK_ONE, own_address, from_name="claude-journey")
-                frame_command = _wire_command(receiver.sock, receiver_token, request, idle)
-                frame_start = fake.peer.count()
-                wire.send_frames(receiver.sock, receiver_token, [request], timeout=5.0)
-                wire.send_frames(receiver.sock, receiver_token, [idle], timeout=5.0)
-                wait_started = time.monotonic()
-                answer_frames = fake.peer.wait_for(is_answer, timeout, frame_start)
-                answer_elapsed = time.monotonic() - wait_started
-                idle_frames = fake.peer.wait_for(is_idle_notice, max(0.0, timeout - answer_elapsed), frame_start)
-                idle_elapsed = time.monotonic() - wait_started
-                answer_text = _content(answer_frames[0]) if answer_frames else "(no answer frame)"
-                notice_detail = idle_frames[0].get("detail", "(no idle notice)") if idle_frames else "(no idle notice)"
-                step4_ok = bool(answer_frames and idle_frames)
-                _print_record(records, step_record(
-                    4, "Claude gives Codex a real task", frame_command,
-                    f"answer (+{answer_elapsed:.2f}s): {answer_text}\n"
-                    f"peer_idle_notice (+{idle_elapsed:.2f}s): {notice_detail}",
-                    time.monotonic() - step_started, "ok" if step4_ok else "failed",
-                ))
+            # 4
+            narrator.step(4, "Claude gives Codex a real task")
+            request, idle = build_frames(TASK_ONE, own_address, from_name="claude-journey")
+            narrator.send(peer_name, TASK_ONE)
+            narrator.note(f"two JSON lines to {receiver.sock}: the auth line, then the message; plus a notify_when_idle subscription")
+            t0 = time.monotonic()
+            start_index = fake.peer.count()
+            wire.send_frames(receiver.sock, receiver_token, [request], timeout=5.0)
+            wire.send_frames(receiver.sock, receiver_token, [idle], timeout=5.0)
+            answer = narrator.wait("Codex is working on it", lambda s: fake.peer.wait_for(is_answer, s, start_index), timeout)
+            answer_at = time.monotonic() - t0
+            answer_text = _content(answer[0]) if answer else "(no answer frame)"
+            if answer:
+                narrator.received("answer", answer_text, answer_at)
+            notice = narrator.wait("waiting for the idle notice", lambda s: fake.peer.wait_for(is_idle_notice, s, start_index),
+                                   max(0.0, timeout - answer_at))
+            notice_at = time.monotonic() - t0
+            notice_detail = notice[0].get("detail", "") if notice else "(no idle notice)"
+            if notice:
+                narrator.received("idle notice", notice_detail or "(no detail)", notice_at)
+            step4_ok = bool(answer and notice)
+            finish(step_record(4, "Claude gives Codex a real task", _wire_command(receiver.sock, receiver_token, request, idle),
+                               f"answer (+{answer_at:.2f}s): {answer_text}\npeer_idle_notice (+{notice_at:.2f}s): {notice_detail}",
+                               time.monotonic() - t0, "ok" if step4_ok else "failed"))
 
-                step_started = time.monotonic()
-                second_request, _ = build_frames(TASK_TWO, own_address, from_name="claude-journey")
-                frame_command = _wire_command(receiver.sock, receiver_token, second_request)
-                frame_start = fake.peer.count()
-                wire.send_frames(receiver.sock, receiver_token, [second_request], timeout=5.0)
-                wait_started = time.monotonic()
-                relay_frames = fake.peer.wait_for(_is_relay, timeout, frame_start)
-                relay_elapsed = time.monotonic() - wait_started
-                answer_frames = fake.peer.wait_for(
-                    lambda frame: is_answer(frame) and not _is_relay(frame),
-                    max(0.0, timeout - relay_elapsed), frame_start,
-                )
-                answer_elapsed = time.monotonic() - wait_started
-                relay_text = _content(relay_frames[0]) if relay_frames else "(no relayed message)"
-                answer_text = _content(answer_frames[0]) if answer_frames else "(no answer frame)"
-                step5_ok = bool(relay_frames and answer_frames)
-                _print_record(records, step_record(
-                    5, "Codex reaches out on its own", frame_command,
-                    f"relayed message (+{relay_elapsed:.2f}s): {relay_text}\n"
-                    f"answer (+{answer_elapsed:.2f}s): {answer_text}",
-                    time.monotonic() - step_started, "ok" if step5_ok else "failed",
-                ))
-            else:
-                _print_record(records, step_record(4, "Claude gives Codex a real task", "(token unavailable)",
-                                                   "could not read the Codex peer token", 0.0, "failed"))
-                _print_record(records, step_record(5, "Codex reaches out on its own", "(not run)",
-                                                   "step 4 did not start", 0.0, "failed"))
+            # 5
+            narrator.step(5, "Codex reaches out on its own")
+            second, _ = build_frames(TASK_TWO, own_address, from_name="claude-journey")
+            narrator.send(peer_name, TASK_TWO)
+            narrator.note("inside Codex's sandbox sockets are blocked; cxpeer send goes through a file outbox the bridge polls")
+            t0 = time.monotonic()
+            start_index = fake.peer.count()
+            wire.send_frames(receiver.sock, receiver_token, [second], timeout=5.0)
+            relay = narrator.wait("waiting for Codex to message us", lambda s: fake.peer.wait_for(_is_relay, s, start_index), timeout)
+            relay_at = time.monotonic() - t0
+            relay_text = _content(relay[0]) if relay else "(no relayed message)"
+            if relay:
+                narrator.received("from Codex, via cxpeer send", relay_text, relay_at)
+            reply = narrator.wait("waiting for Codex's answer",
+                                  lambda s: fake.peer.wait_for(lambda f: is_answer(f) and not _is_relay(f), s, start_index),
+                                  max(0.0, timeout - relay_at))
+            reply_at = time.monotonic() - t0
+            reply_text = _content(reply[0]) if reply else "(no answer frame)"
+            if reply:
+                narrator.received("answer", reply_text, reply_at)
+            step5_ok = bool(relay and reply)
+            finish(step_record(5, "Codex reaches out on its own", _wire_command(receiver.sock, receiver_token, second),
+                               f"relayed message (+{relay_at:.2f}s): {relay_text}\nanswer (+{reply_at:.2f}s): {reply_text}",
+                               time.monotonic() - t0, "ok" if step5_ok else "failed"))
         else:
-            _print_record(records, step_record(4, "Claude gives Codex a real task", "(not run)",
-                                               "step 2 did not start a peer", 0.0, "failed"))
-            _print_record(records, step_record(5, "Codex reaches out on its own", "(not run)",
-                                               "step 4 did not start", 0.0, "failed"))
+            for n, title in ((4, "Claude gives Codex a real task"), (5, "Codex reaches out on its own")):
+                finish(step_record(n, title, "(not run)", "step 2 did not start a peer", 0.0, "failed"))
     except (LookupError, OSError, RuntimeError) as exc:
-        _print_record(records, step_record(4, "Claude gives Codex a real task", "(wire exchange failed)", str(exc),
-                                           0.0, "failed"))
-        _print_record(records, step_record(5, "Codex reaches out on its own", "(not run)",
-                                           "wire exchange failed", 0.0, "failed"))
+        finish(step_record(4, "Claude gives Codex a real task", "(wire exchange failed)", str(exc), 0.0, "failed"))
+        finish(step_record(5, "Codex reaches out on its own", "(not run)", "wire exchange failed", 0.0, "failed"))
     finally:
-        step_started = time.monotonic()
-        teardown_command: list[str] = []
-        teardown_output: list[str] = []
+        # 6
+        narrator.step(6, "Tear down")
+        t0 = time.monotonic()
+        commands: list[str] = []
+        outputs: list[str] = []
         kill_ok = True
         if session and not keep:
-            teardown_command.append(shlex.join(["tmux", "kill-session", "-t", session]))
+            commands.append(shlex.join(["tmux", "kill-session", "-t", session]))
+            narrator.command(commands[-1])
             kill = subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True, text=True)
             kill_ok = kill.returncode == 0
-            if kill.stdout or kill.stderr:
-                teardown_output.append("\n".join(part for part in (kill.stdout, kill.stderr) if part))
         elif session:
-            teardown_command.append(f"(kept tmux session {session})")
-        else:
-            teardown_command.append("(no tmux session to kill)")
-        teardown_command.append("cxpeer status")
+            commands.append(f"(kept tmux session {session})")
+            narrator.note(commands[-1])
+        commands.append("cxpeer status")
+        narrator.command("cxpeer status")
         status_code, status_output = _run_command(["cxpeer", "status"], repo_root)
-        teardown_output.append(status_output)
+        status_output = focus_peer_lines(status_output, ("claude-journey", "codex-journey")) if status_output.strip() else status_output
+        outputs.append(status_output)
+        narrator.lines(status_output)
         fake.close()
-        teardown_command.append("deregister claude-journey")
-        teardown_output.append("deregistered claude-journey")
-        _print_record(records, step_record(7, "Tear down", "\n".join(teardown_command), "\n".join(teardown_output),
-                                           time.monotonic() - step_started,
-                                           "ok" if kill_ok and status_code == 0 else "failed"))
+        commands.append("deregister claude-journey")
+        outputs.append("deregistered claude-journey")
+        narrator.note("deregistered claude-journey")
+        finish(step_record(6, "Tear down", "\n".join(commands), "\n".join(outputs), time.monotonic() - t0,
+                           "ok" if kill_ok and status_code == 0 else "failed"))
 
-    _summary(records)
+    total = time.monotonic() - started
+    if narrator.live:
+        narrator.summary(records, total)
+    else:
+        print("\nSummary\n| Step | Result | Seconds |\n| --- | --- | ---: |")
+        for r in records:
+            print(f"| {r['number']} | {r['result']} | {r['elapsed']:.2f} |")
+        print(f"Total elapsed: {total:.2f}s")
     if record_path:
         try:
             write_markdown(record_path, records)
         except OSError as exc:
             print(f"could not write transcript {record_path}: {exc}", file=sys.stderr)
-    print(f"Total elapsed: {time.monotonic() - started:.2f}s")
     return 0 if step4_ok and step5_ok else 1
 
 
@@ -302,12 +410,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep", action="store_true", help="leave the spawned tmux session running")
     parser.add_argument("--timeout", type=float, default=120.0, help="seconds to wait for each peer response")
     parser.add_argument("--record", type=Path, help="write a Markdown transcript to this path")
+    parser.add_argument("--plain", action="store_true", help="no colours, typing, or timers (default when not a terminal)")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return run_journey(args.keep, args.timeout, args.record, Path(__file__).resolve().parents[1])
+    live = sys.stdout.isatty() and not args.plain
+    return run_journey(args.keep, args.timeout, args.record, Path(__file__).resolve().parents[1], Narrator(live))
 
 
 if __name__ == "__main__":

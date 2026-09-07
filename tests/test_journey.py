@@ -28,3 +28,23 @@ def test_peer_line_marker_marks_only_new_peer(isolated_env):
     marked = mark_peer_line(output, "codex-journey-ab12")
     assert ">>> codex-journey-ab12 [def456]" in marked
     assert "    claude-journey [abc123]" in marked
+
+
+def test_focus_peer_lines_keeps_only_the_journey_peers(isolated_env):
+    from demo.journey import focus_peer_lines
+    listing = "other-1 [aa]  idle  /x\nclaude-journey [bb]  idle  /repo\ncodex-journey-1234 [cc]  busy  /repo\nother-2 [dd]  idle  /y"
+    assert focus_peer_lines(listing, ("claude-journey", "codex-journey-1234")).splitlines() == [
+        "claude-journey [bb]  idle  /repo",
+        "codex-journey-1234 [cc]  busy  /repo",
+        "(2 other live sessions on this machine omitted)",
+    ]
+
+
+def test_focus_doctor_output_hides_other_bridges(isolated_env):
+    from demo.journey import focus_doctor_output
+    out = "ok  codex: version 0.153.3\nok  live-bridges: codex-elsewhere (thread 1): status=idle\nok  live-bridges: codex-journey-ab (thread 2): status=idle"
+    assert focus_doctor_output(out, ("codex-journey",)).splitlines() == [
+        "ok  codex: version 0.153.3",
+        "ok  live-bridges: codex-journey-ab (thread 2): status=idle",
+        "ok  live-bridges: (1 other bridge on this machine omitted)",
+    ]

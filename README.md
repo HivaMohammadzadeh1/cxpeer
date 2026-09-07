@@ -17,7 +17,7 @@ Codex sessions as peers in Claude Code's cross-session messaging
 
 <p align="center"><img src="docs/images/journey.gif" width="900" alt="Recorded run of demo/journey.py: install check, spawn a Codex peer, give it a task, Codex messages back from its sandbox, teardown"></p>
 
-<p align="center">A real run, recorded with asciinema, 46 s of wall clock compressed to 18 s. <a href="docs/user-journey.md">Transcript</a> · <a href="docs/images/journey.mp4">MP4</a> · <a href="docs/journey.cast">asciinema cast</a></p>
+<p align="center">A real run, recorded with asciinema. Left: the Claude side, played by <code>demo/journey.py</code>. Right: the Codex TUI receiving the messages. <a href="docs/user-journey.md">Transcript</a> · <a href="docs/images/journey.mp4">MP4</a> · <a href="docs/journey.cast">cast</a> · <code>scripts/record-journey.sh</code> re-records it.</p>
 
 ## Latest news
 
@@ -202,7 +202,8 @@ a script that records its arguments, so nothing touches your real setup. The bri
 tests run it as a subprocess and talk to it over its socket. `scripts/e2e.sh [DIR]`
 starts a real Codex in tmux and prints the peer name; `scripts/e2e.sh down` kills it.
 `python demo/demo.py` runs the whole loop against a real Codex without a Claude session, and
-`python demo/journey.py --record docs/user-journey.md` records the narrated version.
+`python demo/journey.py --record docs/user-journey.md` runs the narrated version, and
+`scripts/record-journey.sh` records it side by side with the Codex TUI (asciinema + agg).
 
 Issues and pull requests are welcome. Keep changes small and add a test for the failure
 path, not only the happy one.

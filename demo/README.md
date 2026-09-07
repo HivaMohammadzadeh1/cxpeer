@@ -2,8 +2,8 @@
 
 ![recorded journey run](../docs/images/journey.gif)
 
-The recording above is `demo/journey.py`, the narrated version. `demo/demo.py` below is the
-shorter one.
+The recording above is `demo/journey.py` (left) next to the Codex TUI it spawned (right),
+made with `scripts/record-journey.sh`. `demo/demo.py` below is the shorter, plain version.
 
 `demo/demo.py` plays the Claude side without a Claude Code session. It registers a
 temporary peer named `claude-demo`, starts a real Codex peer with `cxpeer spawn --wait`,
