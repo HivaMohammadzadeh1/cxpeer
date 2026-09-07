@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cxpeer"
+version = "0.1.0"
+description = "Make Codex CLI sessions peers of Claude Code cross-session messaging"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+cxpeer = "cxpeer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cxpeer*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
