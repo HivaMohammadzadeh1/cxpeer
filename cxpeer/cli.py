@@ -6,6 +6,8 @@ import argparse
 import json
 import sys
 
+from pathlib import Path
+
 from cxpeer import bridge, client, doctor, hooks, install, registry, spawn
 
 HOOK_EVENTS = ("session-start", "user-prompt-submit", "stop", "interrupt", "session-end")
@@ -81,18 +83,23 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _codex_home(args: argparse.Namespace) -> Path | None:
+    return Path(args.codex_home).expanduser() if args.codex_home else None
+
+
 def _cmd_install(args: argparse.Namespace) -> int:
-    return install.run(dry_run=args.dry_run)
+    return install.run(dry_run=args.dry_run, codex_home=_codex_home(args))
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    return doctor.run()
+    return doctor.run(codex_home=_codex_home(args))
 
 
 def _cmd_spawn(args: argparse.Namespace) -> int:
     extra = args.extra[1:] if args.extra[:1] == ["--"] else args.extra
     return spawn.run(args.kind, args.cwd, args.name, args.prompt, extra,
-                     peer_name=args.peer_name, wait=args.wait, timeout=args.timeout)
+                     peer_name=args.peer_name, wait=args.wait, timeout=args.timeout,
+                     codex_home=str(_codex_home(args)) if args.codex_home else None)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -118,9 +125,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_install = sub.add_parser("install", help="add the cxpeer hooks and skill to ~/.codex")
     p_install.add_argument("--dry-run", action="store_true", help="print what would be written")
+    p_install.add_argument("--codex-home", help="install into this Codex home instead of ~/.codex (a second Codex account)")
     p_install.set_defaults(func=_cmd_install)
 
-    sub.add_parser("doctor", help="diagnose why peers are not showing up in ListAgents; runs a self-test").set_defaults(func=_cmd_doctor)
+    p_doctor = sub.add_parser("doctor", help="diagnose why peers are not showing up in ListAgents; runs a self-test")
+    p_doctor.add_argument("--codex-home", help="check this Codex home instead of ~/.codex (a second Codex account)")
+    p_doctor.set_defaults(func=_cmd_doctor)
 
     p_spawn = sub.add_parser("spawn", help="start a new codex or claude session in a detached tmux session")
     p_spawn.add_argument("kind", choices=("codex", "claude"))
@@ -131,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_spawn.add_argument("--wait", action="store_true",
                          help="answer Codex's startup prompts and wait until the peer is registered")
     p_spawn.add_argument("--timeout", type=float, default=60.0, help="seconds --wait allows (default 60)")
+    p_spawn.add_argument("--codex-home", help="start codex with this CODEX_HOME (a second Codex account)")
     p_spawn.add_argument("extra", nargs="*", help="extra args after --, passed to codex/claude verbatim")
     p_spawn.set_defaults(func=_cmd_spawn)
 

@@ -34,9 +34,19 @@ def test_hook_rejects_unknown_event():
 
 def test_install_forwards_dry_run(monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli.install, "run", lambda dry_run: seen.update(dry_run=dry_run) or 0)
+    monkeypatch.setattr(cli.install, "run", lambda dry_run, codex_home=None: seen.update(dry_run=dry_run, codex_home=codex_home) or 0)
     assert cli.main(["install", "--dry-run"]) == 0
-    assert seen == {"dry_run": True}
+    assert seen == {"dry_run": True, "codex_home": None}
+
+
+def test_install_and_doctor_forward_codex_home(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli.install, "run", lambda dry_run, codex_home=None: seen.update(install=str(codex_home)) or 0)
+    monkeypatch.setattr(cli.doctor, "run", lambda codex_home=None: seen.update(doctor=str(codex_home)) or 0)
+    assert cli.main(["install", "--codex-home", "~/.codex-alt"]) == 0
+    assert cli.main(["doctor", "--codex-home", "/tmp/cx-home"]) == 0
+    assert seen["install"].endswith("/.codex-alt") and not seen["install"].startswith("~")
+    assert seen["doctor"] == "/tmp/cx-home"
 
 
 def test_bridge_forwards_arguments(monkeypatch):
@@ -65,7 +75,7 @@ def test_status_reports_unreachable_bridge(isolated_env, capsys):
 
 def test_spawn_forwards_extra_args_after_double_dash(monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli.spawn, "run", lambda kind, cwd, name, prompt, extra, peer_name=None, wait=False, timeout=60.0: seen.update(
+    monkeypatch.setattr(cli.spawn, "run", lambda kind, cwd, name, prompt, extra, peer_name=None, wait=False, timeout=60.0, codex_home=None: seen.update(
         kind=kind, cwd=cwd, name=name, prompt=prompt, extra=extra, peer_name=peer_name, wait=wait, timeout=timeout) or 0)
     assert cli.main(["spawn", "claude", "--cwd", "/p", "--name", "intern", "--prompt", "hi there",
                      "--", "--permission-mode", "auto"]) == 0
@@ -75,10 +85,10 @@ def test_spawn_forwards_extra_args_after_double_dash(monkeypatch):
 
 def test_spawn_forwards_wait_and_peer_name(monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli.spawn, "run", lambda kind, cwd, name, prompt, extra, peer_name=None, wait=False, timeout=60.0: seen.update(
-        peer_name=peer_name, wait=wait, timeout=timeout) or 0)
-    assert cli.main(["spawn", "codex", "--peer-name", "codex-tests", "--wait", "--timeout", "90"]) == 0
-    assert seen == {"peer_name": "codex-tests", "wait": True, "timeout": 90.0}
+    monkeypatch.setattr(cli.spawn, "run", lambda kind, cwd, name, prompt, extra, peer_name=None, wait=False, timeout=60.0, codex_home=None: seen.update(
+        peer_name=peer_name, wait=wait, timeout=timeout, codex_home=codex_home) or 0)
+    assert cli.main(["spawn", "codex", "--peer-name", "codex-tests", "--wait", "--timeout", "90", "--codex-home", "/tmp/cx-home"]) == 0
+    assert seen == {"peer_name": "codex-tests", "wait": True, "timeout": 90.0, "codex_home": "/tmp/cx-home"}
 
 
 def test_list_sandboxed_reads_snapshot(monkeypatch, capsys):
@@ -117,5 +127,5 @@ def test_send_sandboxed_without_bridge_reports_blocked_sockets(monkeypatch, caps
 
 
 def test_doctor_dispatches(monkeypatch):
-    monkeypatch.setattr(cli.doctor, "run", lambda: 0)
+    monkeypatch.setattr(cli.doctor, "run", lambda codex_home=None: 0)
     assert cli.main(["doctor"]) == 0
