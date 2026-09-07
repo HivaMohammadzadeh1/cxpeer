@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import io
 import json
+import time
 
 import pytest
 
-from cxpeer import cli
+from cxpeer import cli, client
 
 
 def test_hook_passes_stdin_payload_to_hooks_run(monkeypatch):
@@ -70,3 +71,38 @@ def test_spawn_forwards_extra_args_after_double_dash(monkeypatch):
                      "--", "--permission-mode", "auto"]) == 0
     assert seen == {"kind": "claude", "cwd": "/p", "name": "intern", "prompt": "hi there",
                     "extra": ["--permission-mode", "auto"]}
+
+
+def test_list_sandboxed_reads_snapshot(monkeypatch, capsys):
+    rows = [
+        {"name": "codex-a", "ref": "abc123", "status": "idle", "cwd": "/w/a"},
+        {"name": "codex-b", "ref": "def456", "status": "busy", "cwd": "/w/b"},
+    ]
+    snapshot_bridge = client.BridgeInfo(
+        pid=1, sock="/x", token="t" * 32, name="br", cwd="/w", thread="t", started=1,
+        peers_file="/does/not/matter",
+    )
+    monkeypatch.setattr(cli.client, "sandboxed", lambda: True)
+    monkeypatch.setattr(cli.client, "find_bridge", lambda cwd=None, thread=None: snapshot_bridge)
+    monkeypatch.setattr(cli.client, "list_peers_snapshot", lambda bridge: rows)
+    assert cli.main(["list"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "codex-a [abc123]  idle  /w/a",
+        "codex-b [def456]  busy  /w/b",
+    ]
+
+
+def test_list_sandboxed_without_snapshot_warns_and_exits_zero(monkeypatch, capsys):
+    monkeypatch.setattr(cli.client, "sandboxed", lambda: True)
+    monkeypatch.setattr(cli.client, "find_bridge", lambda cwd=None, thread=None: None)
+    assert cli.main(["list"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no fresh bridge snapshot" in captured.err
+
+
+def test_send_sandboxed_without_bridge_reports_blocked_sockets(monkeypatch, capsys):
+    monkeypatch.setattr(cli.client, "find_bridge", lambda cwd=None, thread=None: None)
+    monkeypatch.setattr(cli.client, "sandboxed", lambda: True)
+    assert cli.main(["send", "--to", "codex-x", "hi"]) == 1
+    assert "sockets are blocked in this sandbox" in capsys.readouterr().err

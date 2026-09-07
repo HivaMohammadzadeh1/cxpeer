@@ -12,15 +12,34 @@ HOOK_EVENTS = ("session-start", "user-prompt-submit", "stop", "interrupt", "sess
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
+    if client.sandboxed():
+        return _list_from_snapshot()
     for p in registry.list_peers():
         if p.alive:
             print(f"{p.name} [{p.ref}]  {p.status}  {p.cwd}")
     return 0
 
 
+def _list_from_snapshot() -> int:
+    # `ps` is blocked in the Codex sandbox, so read peers from the bridge's snapshot file.
+    target = client.find_bridge()
+    peers = client.list_peers_snapshot(target) if target is not None else None
+    if not peers:
+        print("cxpeer list: no fresh bridge snapshot in this sandbox", file=sys.stderr)
+        return 0
+    for p in peers:
+        print(f"{p['name']} [{p['ref']}]  {p['status']}  {p['cwd']}")
+    return 0
+
+
 def _cmd_send(args: argparse.Namespace) -> int:
     text = sys.stdin.read() if args.text == "-" else args.text
     target = client.find_bridge()
+    if target is None and client.sandboxed():
+        # No bridge and sockets are blocked, so send_direct cannot work either.
+        print("no bridge for this session and sockets are blocked in this sandbox; "
+              "start Codex with the cxpeer hooks installed", file=sys.stderr)
+        return 1
     try:
         if target is None:
             client.send_direct(args.to, text)
