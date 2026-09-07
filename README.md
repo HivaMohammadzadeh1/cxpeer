@@ -15,7 +15,7 @@ like any other session, and its answer comes back automatically when the turn en
 Codex can message Claude sessions too. No daemon, no polling: three files, one Unix
 socket, and Codex's own hooks.
 
-<p align="center"><img src="docs/images/topology.svg" width="960" alt="Topology: Claude sessions, the bridge, the shared registry, and the Codex session"></p>
+<p align="center"><img src="docs/images/topology.png" width="960" alt="Topology: Claude sessions, the bridge, the shared registry, and the Codex session"></p>
 
 ## Contents
 
@@ -78,7 +78,7 @@ inside Claude's peer system: it writes the registry record, key file, and Unix s
 that Claude Code expects under `~/.claude/sessions` and `/tmp/cc-socks`, so from
 Claude's side it is just another peer.
 
-<p align="center"><img src="docs/images/sequence.svg" width="960" alt="Sequence: SendMessage to the bridge, codex queue, hooks, and the answer forwarded back"></p>
+<p align="center"><img src="docs/images/sequence.png" width="960" alt="Sequence: SendMessage to the bridge, codex queue, hooks, and the answer forwarded back"></p>
 
 1. The `SessionStart` hook spawns a bridge for the session and watches the Codex pid.
 2. A Claude session sends a message. It lands on the bridge's socket, and the bridge
@@ -119,12 +119,12 @@ About 400 lines of standard library in `cxpeer/bridge.py`. The main thread binds
 socket, registers, and runs the accept loop; each connection gets a thread that checks
 the auth line and dispatches frames; handlers share one small state table under a lock.
 
-<p align="center"><img src="docs/images/bridge-internals.svg" width="960" alt="Bridge internals: lifecycle thread, per-connection threads, and shared state"></p>
+<p align="center"><img src="docs/images/bridge-internals.png" width="960" alt="Bridge internals: lifecycle thread, per-connection threads, and shared state"></p>
 
 The bridge never inspects Codex's transcript. It pairs an answer with the request that
 caused it through the marker it appended to the queued text:
 
-<p align="center"><img src="docs/images/request-states.svg" width="960" alt="Request states: pending, active, answered, and the two early exits"></p>
+<p align="center"><img src="docs/images/request-states.png" width="960" alt="Request states: pending, active, answered, and the two early exits"></p>
 
 The on-disk contract, verified against Claude Code 2.1.263:
 
