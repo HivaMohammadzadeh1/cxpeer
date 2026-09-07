@@ -50,13 +50,20 @@ run `cxpeer install` again after upgrading cxpeer.
 The next time Codex starts it asks once to trust the new hooks. Choose **Trust all and
 continue**; without that the hooks do not run and no bridge is created.
 
+Run `cxpeer doctor` once. It checks both CLIs, the hooks, the trust record, and runs a
+self-test that starts a bridge and messages it. A green run means the peer path works.
+
 Then, from any Claude Code session:
 
-1. Start Codex (or `cxpeer spawn codex --cwd DIR --prompt "task"`) and submit a first
-   prompt. Codex creates the session lazily, so the bridge appears at that moment.
-2. Run `ListAgents`. The Codex session is listed as `codex-<dir>-<xx>`.
+1. Start a Codex peer: `cxpeer spawn codex --cwd DIR --peer-name codex-tests --prompt "task" --wait`.
+   It answers Codex's startup prompts, submits the prompt (Codex creates the session,
+   and so the bridge, on the first prompt), and returns when the peer is registered.
+   Or start `codex` yourself and submit a first prompt; the peer is then named
+   `codex-<dir>-<xx>`.
+2. Run `ListAgents`. The Codex session is listed under that name.
 3. `SendMessage` it. The final answer of that Codex turn arrives back as a
-   cross-session message from the same name.
+   cross-session message from the same name. Pass `notify_when_idle` on the
+   SendMessage to also get one idle notice when the turn ends.
 
 ### Claude Code side (optional)
 
@@ -98,7 +105,8 @@ Claude's side it is just another peer.
    notice if the session goes away first. No polling on either side.
 6. When the Codex session ends, the `SessionEnd` hook tells the bridge to deregister.
    If Codex exits without firing the hook, the bridge notices its watched pid is gone
-   and cleans up within a few seconds.
+   and cleans up within a few seconds. If the bridge dies while Codex is still running,
+   the next hook event starts a new one before delivering its frame.
 
 Measured on 2026-09-07 with a real Codex TUI, a `SendMessage` was answered in 8 seconds
 end to end, most of it Codex thinking. A `cxpeer send` run inside Codex arrived in the
@@ -111,8 +119,9 @@ Claude session 10 seconds after the request went in.
 | `cxpeer list` | One row per live peer: `name [ref]  status  cwd`. |
 | `cxpeer send --to NAME TEXT` | Message a peer by name or ref. `TEXT` may be `-` to read stdin. Routes through this session's bridge so the reply can come back; with no bridge it delivers directly and warns that replies cannot be routed. |
 | `cxpeer status` | Every bridge, whether it answers, and how many requests are waiting for a turn. |
+| `cxpeer doctor` | Ten checks (CLIs, registry, hooks, trust, skill, tmux), a bridge self-test, and the live bridges. Run it first when nothing shows up in `ListAgents`. |
 | `cxpeer install [--dry-run]` | Install or update the Codex hooks and skill. |
-| `cxpeer spawn codex\|claude [--cwd DIR] [--name NAME] [--prompt TEXT] [-- ARGS...]` | Start a new Codex or Claude session in a detached tmux session. Anything after `--` goes to the child command verbatim. |
+| `cxpeer spawn codex\|claude [--cwd DIR] [--name NAME] [--peer-name NAME] [--prompt TEXT] [--wait] [--timeout S] [-- ARGS...]` | Start a new Codex or Claude session in a detached tmux session. `--peer-name` sets the name Claude sees; `--wait` answers Codex's startup prompts and returns once the peer is registered. Anything after `--` goes to the child command verbatim. |
 | `cxpeer bridge --thread ID --cwd DIR [--name NAME] [--watch-pid PID]` | Run a bridge. Started by the `SessionStart` hook; not normally run by hand. |
 | `cxpeer hook EVENT` | Handle one Codex hook event with the payload as JSON on stdin. Never fails a turn: on any error it logs and exits 0. |
 
@@ -185,7 +194,7 @@ real state.
 | `CXPEER_PENDING_TTL_SECONDS` | `900` | how long a request may wait for a turn |
 
 Logs: `~/.cxpeer/logs/hooks.log` for the hooks and `~/.cxpeer/logs/<thread>.log` per
-bridge. When a message does not arrive, read those first.
+bridge. When a message does not arrive, run `cxpeer doctor`, then read those.
 
 ## Development
 
@@ -211,8 +220,8 @@ Design notes live in `docs/superpowers/specs/2026-09-07-cxpeer-design.md`.
 - cxpeer builds on an undocumented Claude Code internal (`peerProtocol` 1). A Claude
   Code update can break it without warning. The tests pin today's contract, so a break
   shows up as failing tests rather than silent drops.
-- macOS only. Liveness uses `ps -o lstart=` and the registry assumes a darwin pid
-  domain. Windows is not supported.
+- Built and tested on macOS; the test suite also passes on Linux in CI, but no Linux
+  Claude peer run has been checked by hand. Windows is not supported.
 - Peer messages are plain text between processes of the same user. Outbox files under
   `/tmp/cxpeer-<uid>` are created with the writer's umask; treat them as readable by
   anything running as you.
