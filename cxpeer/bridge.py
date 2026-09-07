@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import registry, wire
-from .paths import bridges_dir, codex_bin, logs_dir, sock_dir
+from .paths import bridges_dir, codex_bin, logs_dir, outbox_root, sock_dir
 
 LOG = logging.getLogger("cxpeer.bridge")
 
@@ -112,6 +112,14 @@ class Bridge:
     def state_path(self) -> Path:
         return bridges_dir() / f"{self.thread}.json"
 
+    @property
+    def peers_path(self) -> Path:
+        return bridges_dir() / f"{self.thread}.peers.json"
+
+    @property
+    def outbox(self) -> Path:
+        return outbox_root() / self.thread
+
     def start(self) -> None:
         sock_dir().mkdir(mode=0o700, exist_ok=True)
         Path(self.sock_path).unlink(missing_ok=True)
@@ -122,7 +130,9 @@ class Bridge:
         server.settimeout(1.0)
         self._server = server
         registry.register(self.pid, self.name, self.cwd, self.sock_path, self.token)
+        self.outbox.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._write_state()
+        self._write_peers_snapshot()
         LOG.info("bridge %s up: pid=%s sock=%s thread=%s", self.name, self.pid, self.sock_path, self.thread)
 
     def serve_forever(self) -> None:
@@ -135,6 +145,8 @@ class Bridge:
                     LOG.info("watched pid %s is gone; shutting down", self.watch_pid)
                     break
                 self._expire_pending()
+                self._write_peers_snapshot()
+            self._drain_outbox()
             try:
                 conn, _ = self._server.accept()
             except socket.timeout:
@@ -151,6 +163,8 @@ class Bridge:
         for step, action in (
             ("deregister", lambda: registry.deregister(self.pid)),
             ("remove state", lambda: self.state_path.unlink(missing_ok=True)),
+            ("remove peers snapshot", lambda: self.peers_path.unlink(missing_ok=True)),
+            ("remove outbox", self._remove_outbox),
             ("unlink socket", lambda: Path(self.sock_path).unlink(missing_ok=True)),
         ):
             try:
@@ -160,6 +174,43 @@ class Bridge:
         if self._server is not None:
             self._server.close()
         LOG.info("bridge %s down", self.name)
+
+    def _write_peers_snapshot(self) -> None:
+        """Alive peers, for `cxpeer list` inside the Codex sandbox where `ps` is blocked."""
+        peers = [
+            {"name": p.name, "ref": p.ref, "pid": p.pid, "sock": p.sock, "cwd": p.cwd, "status": p.status, "kind": p.kind}
+            for p in registry.list_peers() if p.alive
+        ]
+        try:
+            _write_json_atomic(self.peers_path, {"updated": time.time(), "peers": peers})
+        except OSError as exc:
+            LOG.error("peers snapshot failed: %s", exc)
+
+    def _drain_outbox(self) -> None:
+        """Relay send requests dropped in the outbox by sandboxed `cxpeer send`."""
+        try:
+            requests = sorted(p for p in self.outbox.glob("*.json") if not p.name.endswith(".result.json"))
+        except OSError as exc:
+            LOG.error("outbox unreadable: %s", exc)
+            return
+        for path in requests:
+            request = _read_json(path)
+            request_id = request.get("id") if isinstance(request, dict) else None
+            if not isinstance(request_id, str) or request_id != path.stem:
+                LOG.warning("dropping malformed outbox request %s", path.name)
+                path.unlink(missing_ok=True)
+                continue
+            result = self.on_relay({"type": "cxpeer.relay", "to": request.get("to"), "text": request.get("text")})
+            try:
+                _write_json_atomic(path.with_name(f"{request_id}.result.json"), result)
+            except OSError as exc:
+                LOG.error("could not write result for %s: %s", request_id, exc)
+            path.unlink(missing_ok=True)
+
+    def _remove_outbox(self) -> None:
+        for path in self.outbox.glob("*"):
+            path.unlink(missing_ok=True)
+        self.outbox.rmdir()
 
     def _expire_pending(self) -> None:
         """Tell senders whose request never paired with a turn that no reply is coming."""
@@ -184,12 +235,10 @@ class Bridge:
             "cwd": self.cwd,
             "thread": self.thread,
             "started": int(time.time() * 1000),
+            "outbox": str(self.outbox),
+            "peers_file": str(self.peers_path),
         }
-        tmp = self.state_path.with_suffix(".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as fh:
-            json.dump(state, fh)
-        os.replace(tmp, self.state_path)
+        _write_json_atomic(self.state_path, state)
 
     # ----- connections -----
 
@@ -197,8 +246,13 @@ class Bridge:
         conn.settimeout(CONNECTION_IDLE_SECONDS)
         try:
             reader = conn.makefile("r", encoding="utf-8", errors="replace")
-            if not self._authenticated(reader.readline()):
-                LOG.warning("dropped connection: bad or missing auth line")
+            first = reader.readline()
+            if not first.strip():
+                # Claude opens and closes a connection to check the socket is alive.
+                LOG.debug("probe connection closed without data")
+                return
+            if not self._authenticated(first):
+                LOG.warning("dropped connection: bad auth line")
                 return
             for line in reader:
                 frame = self._parse(line)
@@ -369,6 +423,21 @@ class Bridge:
                 registry.set_status(self.pid, status)
             except OSError as exc:
                 LOG.error("status update to %s failed: %s", status, exc)
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, path)
+
+
+def _read_json(path: Path) -> object:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
 
 
 def _configure_logging(thread: str) -> None:

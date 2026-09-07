@@ -280,3 +280,51 @@ def test_stale_pending_request_expires_with_a_note(isolated_env, claude, fake_co
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+
+def test_outbox_request_is_relayed_and_answered_with_a_result_file(bridge, claude, isolated_env):
+    _, state = bridge
+    outbox = Path(state["outbox"])
+    assert outbox.is_dir() and outbox == isolated_env["home"] / "outbox" / THREAD
+    request = outbox / "req-1.json"
+    tmp = request.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"id": "req-1", "to": "claude-fake", "text": "from the sandbox"}))
+    os.replace(tmp, request)
+    frames = claude.wait_for_frames(2)
+    assert "\nfrom the sandbox\n" in frames[1]["message"]["content"]
+    result = outbox / "req-1.result.json"
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not result.exists():
+        time.sleep(0.05)
+    assert json.loads(result.read_text()) == {"ok": True, "to": "claude-fake"}
+    assert not request.exists()
+
+
+def test_outbox_request_to_unknown_peer_gets_error_result(bridge):
+    _, state = bridge
+    outbox = Path(state["outbox"])
+    (outbox / "req-2.json").write_text(json.dumps({"id": "req-2", "to": "nobody", "text": "x"}))
+    result = outbox / "req-2.result.json"
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not result.exists():
+        time.sleep(0.05)
+    data = json.loads(result.read_text())
+    assert data["ok"] is False and "nobody" in data["error"]
+
+
+def test_peers_snapshot_lists_alive_peers_and_is_removed_on_shutdown(bridge, claude, isolated_env):
+    proc, state = bridge
+    peers_file = Path(state["peers_file"])
+    snapshot = json.loads(peers_file.read_text())
+    assert time.time() - snapshot["updated"] < 10
+    names = {p["name"] for p in snapshot["peers"]}
+    assert "codex-proj-ce" in names
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline and "claude-fake" not in names:
+        time.sleep(0.2)
+        names = {p["name"] for p in json.loads(peers_file.read_text())["peers"]}
+    assert "claude-fake" in names
+    talk(state["sock"], state["token"], [{"type": "cxpeer.shutdown"}], expect_reply=True)
+    proc.wait(timeout=5)
+    assert not peers_file.exists()
+    assert not Path(state["outbox"]).exists()

@@ -22,6 +22,7 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, P
     monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIR", str(sessions))
     monkeypatch.setenv("CXPEER_SOCK_DIR", str(socks))
     monkeypatch.setenv("CXPEER_HOME", str(home))
+    monkeypatch.setenv("CXPEER_OUTBOX_ROOT", str(home / "outbox"))
     yield {"sessions": sessions, "socks": socks, "home": home}
     for p in socks.iterdir():
         p.unlink(missing_ok=True)

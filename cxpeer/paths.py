@@ -29,6 +29,11 @@ def logs_dir() -> Path:
     return state_dir() / "logs"
 
 
+def outbox_root() -> Path:
+    """Where sandboxed Codex shells drop send requests for their bridge; /tmp is writable there."""
+    return Path(os.environ.get("CXPEER_OUTBOX_ROOT") or f"/tmp/cxpeer-{os.getuid()}")
+
+
 def codex_bin() -> str:
     """The codex executable. Tests point this at a fake script."""
     return os.environ.get("CXPEER_CODEX_BIN") or "codex"
