@@ -86,14 +86,19 @@ def check_claude() -> Check:
     return Check("ok", "claude", f"version {text}")
 
 
-def check_sessions_dir() -> Check:
-    d = paths.sessions_dir()
-    if not d.exists():
-        return Check("FAIL", "claude-sessions", f"{d} does not exist", "start a Claude Code session once")
-    mode = stat.S_IMODE(d.stat().st_mode)
-    if mode != 0o700:
-        return Check("warn", "claude-sessions", f"{d} is mode {oct(mode)}, expected 0700")
-    return Check("ok", "claude-sessions", f"{d} present (0700)")
+def check_sessions_dir() -> list[Check]:
+    """One line per Claude account registry cxpeer writes into."""
+    out: list[Check] = []
+    for d in paths.sessions_dirs():
+        if not d.exists():
+            out.append(Check("FAIL", "claude-sessions", f"{d} does not exist", "start a Claude Code session once"))
+            continue
+        mode = stat.S_IMODE(d.stat().st_mode)
+        if mode != 0o700:
+            out.append(Check("warn", "claude-sessions", f"{d} is mode {oct(mode)}, expected 0700"))
+        else:
+            out.append(Check("ok", "claude-sessions", f"{d} present (0700)"))
+    return out
 
 
 def check_sock_dir() -> Check:
@@ -319,7 +324,8 @@ def check_live_bridges() -> list[Check]:
 
 def run(codex_home: Path | None = None) -> int:
     home = codex_home or install.codex_home()
-    checks = [
+    checks: list[Check] = []
+    for result in (
         check_claude(),
         check_sessions_dir(),
         check_sock_dir(),
@@ -329,7 +335,8 @@ def run(codex_home: Path | None = None) -> int:
         check_skill(home),
         check_tmux(),
         self_test(),
-    ]
+    ):
+        checks.extend(result if isinstance(result, list) else [result])
     checks.extend(check_live_bridges())
 
     failed = 0

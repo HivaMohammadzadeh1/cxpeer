@@ -135,3 +135,119 @@ def test_deregister_removes_record_and_key(isolated_env):
     registry.deregister(pid)
     assert not (sessions_dir() / f"{pid}.json").exists()
     assert not (sessions_dir() / registry.key_name_for(pid, sock)).exists()
+
+
+# --- multiple Claude accounts (CXPEER_CLAUDE_SESSIONS_DIRS) -----------------
+
+
+def test_register_writes_every_registry_with_identical_tokens(isolated_env, tmp_path, monkeypatch):
+    a = tmp_path / "acct-a" / "sessions"
+    b = tmp_path / "acct-b" / "sessions"  # neither exists yet: register creates them 0700
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", f"{a}:{b}")
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    registry.register(pid, "codex-multi", "/work", sock, "a" * 32)
+
+    tokens = []
+    for d in (a, b):
+        assert stat.S_IMODE(d.stat().st_mode) == 0o700
+        rec = json.loads((d / f"{pid}.json").read_text())
+        assert rec["name"] == "codex-multi" and rec["messagingSocketPath"] == sock
+        key = json.loads((d / registry.key_name_for(pid, sock)).read_text())
+        tokens.append(key["peerToken"])
+    assert tokens == ["a" * 32, "a" * 32]
+
+
+def test_list_and_resolve_see_a_peer_only_in_the_second_registry(isolated_env, tmp_path, monkeypatch):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    # Register while only the second account's registry is active.
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", str(b))
+    registry.register(pid, "codex-in-b", "/work", sock, "b" * 32)
+    assert not (a / f"{pid}.json").exists()
+
+    # With both active, the peer from b is listed, resolvable, and its token is found.
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", f"{a}:{b}")
+    peers = {p.name: p for p in registry.list_peers()}
+    assert "codex-in-b" in peers and peers["codex-in-b"].alive is True
+    assert registry.resolve("codex-in-b").pid == pid
+    assert registry.token_for(sock) == "b" * 32
+
+
+def test_list_peers_dedups_by_socket_first_registry_wins(isolated_env, tmp_path, monkeypatch):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", f"{a}:{b}")
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    registry.register(pid, "codex-dup", "/work", sock, "c" * 32)  # same record in both
+    dup = [p for p in registry.list_peers() if p.sock == sock]
+    assert len(dup) == 1  # one socket -> one peer
+
+
+def test_deregister_clears_every_registry(isolated_env, tmp_path, monkeypatch):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", f"{a}:{b}")
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    registry.register(pid, "codex-x", "/work", sock, "d" * 32)
+    assert (a / f"{pid}.json").exists() and (b / f"{pid}.json").exists()
+    registry.deregister(pid)
+    for d in (a, b):
+        assert not (d / f"{pid}.json").exists()
+        assert not list(d.glob(f"{pid}.*.key"))
+
+
+def test_set_status_updates_every_registry_where_present(isolated_env, tmp_path, monkeypatch):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", f"{a}:{b}")
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    registry.register(pid, "codex-s", "/work", sock, "e" * 32)
+    registry.set_status(pid, "busy")
+    for d in (a, b):
+        assert json.loads((d / f"{pid}.json").read_text())["status"] == "busy"
+
+
+def test_token_for_finds_key_in_any_registry(isolated_env, tmp_path, monkeypatch):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", str(a))  # key written only into a
+    registry.register(pid, "codex-a", "/work", sock, "f" * 32)
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", f"{b}:{a}")  # b first, key is in a
+    assert registry.token_for(sock) == "f" * 32
+
+
+def test_register_skips_readonly_registry_without_raising(isolated_env, tmp_path, monkeypatch, capsys):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions")
+    good = tmp_path / "good"
+    readonly = tmp_path / "readonly"
+    good.mkdir()
+    readonly.mkdir(mode=0o500)  # no write bit: register must skip it, not crash
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", f"{good}:{readonly}")
+    pid = os.getpid()
+    sock = registry.sock_path_for(pid)
+    try:
+        registry.register(pid, "codex-ro", "/work", sock, "a" * 32)  # must not raise
+        assert (good / f"{pid}.json").exists()
+        assert not (readonly / f"{pid}.json").exists()
+        assert "skipping unwritable registry" in capsys.readouterr().err
+    finally:
+        readonly.chmod(0o700)  # let tmp_path cleanup remove it

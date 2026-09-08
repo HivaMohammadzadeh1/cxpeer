@@ -53,13 +53,14 @@ def test_check_claude_warns_when_absent(monkeypatch):
 
 
 def test_check_sessions_dir_ok(isolated_env):
-    assert doctor.check_sessions_dir().level == "ok"
+    lines = doctor.check_sessions_dir()
+    assert [c.level for c in lines] == ["ok"]
 
 
 def test_check_sessions_dir_fails_when_missing(isolated_env, monkeypatch, tmp_path):
     monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIR", str(tmp_path / "no-sessions"))
-    c = doctor.check_sessions_dir()
-    assert c.level == "FAIL" and "Claude Code session" in c.fix
+    lines = doctor.check_sessions_dir()
+    assert lines[0].level == "FAIL" and "Claude Code session" in lines[0].fix
 
 
 def test_check_sessions_dir_warns_on_mode(isolated_env, monkeypatch, tmp_path):
@@ -67,7 +68,18 @@ def test_check_sessions_dir_warns_on_mode(isolated_env, monkeypatch, tmp_path):
     d.mkdir()
     d.chmod(0o755)
     monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIR", str(d))
-    assert doctor.check_sessions_dir().level == "warn"
+    assert doctor.check_sessions_dir()[0].level == "warn"
+
+
+def test_check_sessions_dir_one_line_per_registry(monkeypatch, tmp_path):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir(mode=0o700)
+    b.mkdir(mode=0o700)
+    monkeypatch.setenv("CXPEER_CLAUDE_SESSIONS_DIRS", f"{a}:{b}")
+    lines = doctor.check_sessions_dir()
+    assert [c.level for c in lines] == ["ok", "ok"]
+    assert str(a) in lines[0].detail and str(b) in lines[1].detail
 
 
 def test_check_sock_dir_ok(isolated_env):

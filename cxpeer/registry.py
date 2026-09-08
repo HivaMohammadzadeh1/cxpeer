@@ -12,12 +12,13 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from cxpeer.paths import sessions_dir, sock_dir
+from cxpeer.paths import sessions_dirs, sock_dir
 
 # Mirrors a real Claude record so the peer is indistinguishable; unknown fields are ignored.
 CLAUDE_VERSION = "2.1.263"
@@ -88,9 +89,9 @@ def _atomic_write(path: Path, data: str, mode: int = 0o600) -> None:
 
 
 def register(pid: int, name: str, cwd: str, sock_path: str, token: str) -> None:
-    """Write the record and key file for a peer. Both are private (0600); dir is 0700."""
-    d = sessions_dir()
-    d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    """Write the record and key file into every account's registry so each Claude Code
+    account on this machine sees the peer. Records are byte-identical across accounts.
+    A registry that cannot be written is logged and skipped, never fatal."""
     now = _now_ms()
     started = proc_start(pid)
     record = {
@@ -113,27 +114,47 @@ def register(pid: int, name: str, cwd: str, sock_path: str, token: str) -> None:
         "updatedAt": now,
         "statusUpdatedAt": now,
     }
-    key = {"peerToken": token, "procStart": started, "pidDomain": PID_DOMAIN}
-    _atomic_write(d / f"{pid}.json", json.dumps(record), 0o600)
-    _atomic_write(d / key_name_for(pid, sock_path), json.dumps(key), 0o600)
+    record_json = json.dumps(record)
+    key_json = json.dumps({"peerToken": token, "procStart": started, "pidDomain": PID_DOMAIN})
+    key_name = key_name_for(pid, sock_path)
+    for d in sessions_dirs():
+        try:
+            d.mkdir(mode=0o700, parents=True, exist_ok=True)
+            _atomic_write(d / f"{pid}.json", record_json, 0o600)
+            _atomic_write(d / key_name, key_json, 0o600)
+        except OSError as exc:
+            print(f"cxpeer: skipping unwritable registry {d}: {exc}", file=sys.stderr)
 
 
 def deregister(pid: int) -> None:
-    d = sessions_dir()
-    (d / f"{pid}.json").unlink(missing_ok=True)
-    for key in d.glob(f"{pid}.*.key"):
-        key.unlink(missing_ok=True)
+    """Remove the record and key from every account's registry."""
+    for d in sessions_dirs():
+        try:
+            (d / f"{pid}.json").unlink(missing_ok=True)
+            for key in d.glob(f"{pid}.*.key"):
+                key.unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"cxpeer: could not clean registry {d}: {exc}", file=sys.stderr)
 
 
 def set_status(pid: int, status: str) -> None:
-    """Rewrite the record with a new status and bumped timestamps."""
-    path = sessions_dir() / f"{pid}.json"
-    record = json.loads(path.read_text())
+    """Rewrite the record with a new status and bumped timestamps, in every registry
+    where it exists (same timestamp everywhere)."""
     now = _now_ms()
-    record["status"] = status
-    record["updatedAt"] = now
-    record["statusUpdatedAt"] = now
-    _atomic_write(path, json.dumps(record), 0o600)
+    for d in sessions_dirs():
+        path = d / f"{pid}.json"
+        if not path.exists():
+            continue
+        record = _read_json(path)
+        if record is None:
+            continue
+        record["status"] = status
+        record["updatedAt"] = now
+        record["statusUpdatedAt"] = now
+        try:
+            _atomic_write(path, json.dumps(record), 0o600)
+        except OSError as exc:
+            print(f"cxpeer: could not update status in {d}: {exc}", file=sys.stderr)
 
 
 def _read_json(path: Path) -> dict | None:
@@ -144,44 +165,50 @@ def _read_json(path: Path) -> dict | None:
 
 
 def list_peers() -> list[Peer]:
-    """Every registry record as a Peer. ``alive`` is True only when the pid's current
-    procStart matches the record; a gone pid (procStart None) is always dead."""
+    """Every registry record across all accounts as a Peer, deduplicated by socket path
+    (the first account wins). ``alive`` is True only when the pid's current procStart
+    matches the record; a gone pid (procStart None) is always dead."""
     peers: list[Peer] = []
-    for path in sorted(sessions_dir().glob("*.json")):
-        rec = _read_json(path)
-        if not rec:
-            continue
-        sock = rec.get("messagingSocketPath")
-        pid = rec.get("pid")
-        if not sock or pid is None:
-            continue
-        current = proc_start(pid)
-        alive = current is not None and current == rec.get("procStart")
-        peers.append(
-            Peer(
-                name=rec.get("name") or f"pid-{pid}",
-                ref=ref_for(sock),
-                pid=pid,
-                sock=sock,
-                cwd=rec.get("cwd") or "",
-                status=rec.get("status") or "idle",
-                kind=rec.get("kind") or "interactive",
-                alive=alive,
+    seen_socks: set[str] = set()
+    for d in sessions_dirs():
+        for path in sorted(d.glob("*.json")):
+            rec = _read_json(path)
+            if not rec:
+                continue
+            sock = rec.get("messagingSocketPath")
+            pid = rec.get("pid")
+            if not sock or pid is None or sock in seen_socks:
+                continue
+            seen_socks.add(sock)
+            current = proc_start(pid)
+            alive = current is not None and current == rec.get("procStart")
+            peers.append(
+                Peer(
+                    name=rec.get("name") or f"pid-{pid}",
+                    ref=ref_for(sock),
+                    pid=pid,
+                    sock=sock,
+                    cwd=rec.get("cwd") or "",
+                    status=rec.get("status") or "idle",
+                    kind=rec.get("kind") or "interactive",
+                    alive=alive,
+                )
             )
-        )
     return peers
 
 
 def token_for(sock_path: str) -> str | None:
-    """The peerToken for a peer's socket, read from its key file, or None if absent."""
+    """The peerToken for a peer's socket, read from its key file in any account's registry."""
     name = os.path.basename(sock_path)
     if not name.endswith(".sock"):
         return None
     pid = name[: -len(".sock")]
-    key = _read_json(sessions_dir() / key_name_for(pid, sock_path))
-    if not key:
-        return None
-    return key.get("peerToken")
+    key_name = key_name_for(pid, sock_path)
+    for d in sessions_dirs():
+        key = _read_json(d / key_name)
+        if key and key.get("peerToken"):
+            return key.get("peerToken")
+    return None
 
 
 def resolve(name_or_ref: str) -> Peer:

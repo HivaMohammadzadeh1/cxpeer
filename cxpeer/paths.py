@@ -7,8 +7,33 @@ from pathlib import Path
 
 
 def sessions_dir() -> Path:
-    """Claude Code's peer registry directory."""
+    """Claude Code's peer registry directory (the primary account)."""
     return Path(os.environ.get("CXPEER_CLAUDE_SESSIONS_DIR") or Path.home() / ".claude" / "sessions")
+
+
+def sessions_dirs() -> list[Path]:
+    """Every Claude peer registry to keep in sync, one per Claude Code account on this machine.
+
+    Precedence, so tests and power users stay in control:
+    - CXPEER_CLAUDE_SESSIONS_DIRS (colon-separated, like PATH): exactly those, in order.
+    - CXPEER_CLAUDE_SESSIONS_DIR set: only sessions_dir(); an explicit primary means "just this
+      one", and this keeps single-registry callers (and their tests) from touching other accounts.
+    - Otherwise: sessions_dir() first, then every existing ~/.claude-*/sessions and
+      ~/.claude_*/sessions (the CLAUDE_CONFIG_DIR convention for a second account), sorted, deduped.
+    """
+    explicit = os.environ.get("CXPEER_CLAUDE_SESSIONS_DIRS")
+    if explicit:
+        return [Path(p) for p in explicit.split(":") if p]
+    primary = sessions_dir()
+    if os.environ.get("CXPEER_CLAUDE_SESSIONS_DIR"):
+        return [primary]
+    discovered = set()
+    home = Path.home()
+    for pattern in (".claude-*/sessions", ".claude_*/sessions"):
+        for sess in home.glob(pattern):
+            if sess.is_dir():
+                discovered.add(sess)
+    return [primary] + [d for d in sorted(discovered) if d != primary]
 
 
 def sock_dir() -> Path:
