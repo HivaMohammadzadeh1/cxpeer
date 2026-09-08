@@ -27,7 +27,7 @@ except ImportError:
 
 TASK_ONE = "List the three largest source files under cxpeer/ with their line counts, one line each."
 TASK_TWO = 'Run `cxpeer send --to claude-journey "hello from inside the Codex sandbox"` and reply with its exit code.'
-TOTAL_STEPS = 6
+TOTAL_STEPS = 6  # 7 with --second-registry
 
 
 # ----- records and transcript (pure, unit-tested) -----
@@ -106,10 +106,12 @@ class Narrator:
         table = {"bold": "1", "dim": "2", "cyan": "36", "yellow": "33", "green": "32", "red": "31", "magenta": "35", "blue": "34"}
         return "".join(f"\x1b[{table[k]}m" for k in codes) + text + "\x1b[0m"
 
-    def banner(self) -> None:
+    def banner(self, extra: str | None = None) -> None:
         lines = ["cxpeer · a Claude session talks to a Codex session",
                  "left: the Claude side, played by demo/journey.py",
                  "right: the Codex TUI receiving the messages"]
+        if extra:
+            lines.append(extra)
         width = max(len(l) for l in lines) + 4
         print(self.c("┌" + "─" * width + "┐", "cyan"))
         for i, l in enumerate(lines):
@@ -117,9 +119,11 @@ class Narrator:
         print(self.c("└" + "─" * width + "┘", "cyan"))
         self.pause(1.2)
 
+    total_steps = TOTAL_STEPS
+
     def step(self, n: int, title: str) -> None:
         print()
-        print(self.c(f"── step {n} of {TOTAL_STEPS} · {title} ", "bold", "cyan") + self.c("─" * max(4, 70 - len(title)), "cyan"))
+        print(self.c(f"── step {n} of {self.total_steps} · {title} ", "bold", "cyan") + self.c("─" * max(4, 70 - len(title)), "cyan"))
         self.pause(0.6)
 
     def command(self, text: str) -> None:
@@ -240,8 +244,16 @@ def _is_relay(frame: dict) -> bool:
     return is_answer(frame) and "hello from inside" in _content(frame)
 
 
-def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root: Path, narrator: Narrator) -> int:
+def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root: Path, narrator: Narrator,
+                codex_home: str | None = None, second_registry: str | None = None) -> int:
     records: list[dict] = []
+    narrator.total_steps = TOTAL_STEPS + (1 if second_registry else 0)
+    step_no = 0
+
+    def nxt() -> int:
+        nonlocal step_no
+        step_no += 1
+        return step_no
     fake = register_fake_peer("claude-journey", str(repo_root))
     session: str | None = None
     peer_name: str | None = None
@@ -256,25 +268,38 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
             print(format_step_record(record), flush=True)
 
     if narrator.live:
-        narrator.banner()
+        extra = None
+        if codex_home or second_registry:
+            parts = []
+            if codex_home:
+                parts.append(f"Codex account: CODEX_HOME={codex_home}")
+            if second_registry:
+                parts.append(f"second Claude account registry: {second_registry}")
+            extra = " · ".join(parts)
+        narrator.banner(extra)
     try:
         # 1
-        narrator.step(1, "Check the install")
-        narrator.command("cxpeer doctor")
+        n = nxt()
+        narrator.step(n, "Check the install")
+        doctor_cmd = ["cxpeer", "doctor"] + (["--codex-home", codex_home] if codex_home else [])
+        narrator.command(shlex.join(doctor_cmd))
         t0 = time.monotonic()
-        code, output = _run_command(["cxpeer", "doctor"], repo_root)
+        code, output = _run_command(doctor_cmd, repo_root)
         output = focus_doctor_output(output, ("claude-journey", "codex-journey"))
         narrator.lines(output)
-        finish(step_record(1, "Check the install", "cxpeer doctor", output, time.monotonic() - t0, "ok" if code == 0 else "failed"))
+        finish(step_record(n, "Check the install", shlex.join(doctor_cmd), output, time.monotonic() - t0, "ok" if code == 0 else "failed"))
 
         # 2
-        narrator.step(2, "Start a Codex peer from a Claude session")
+        n = nxt()
+        narrator.step(n, "Start a Codex peer from a Claude session")
         peer_name = f"codex-journey-{secrets.token_hex(2)}"
+        home_args = ["--codex-home", codex_home] if codex_home else []
         spawn = ["cxpeer", "spawn", "codex", "--cwd", str(repo_root), "--peer-name", peer_name,
-                 "--prompt", "Say READY and nothing else.", "--wait", "--timeout", str(max(1, int(timeout)))]
-        shown = ["cxpeer", "spawn", "codex", "--peer-name", peer_name, "--prompt", "Say READY and nothing else.", "--wait"]
+                 "--prompt", "Say READY and nothing else.", "--wait", "--timeout", str(max(1, int(timeout)))] + home_args
+        shown = ["cxpeer", "spawn", "codex", "--peer-name", peer_name, "--prompt", "Say READY and nothing else.", "--wait"] + home_args
         narrator.command(shlex.join(shown))
-        narrator.note("starts codex in tmux, answers its startup prompts, submits the prompt, waits for the peer")
+        narrator.note("starts codex in tmux, answers its startup prompts, submits the prompt, waits for the peer"
+                      + (" (this Codex account's own hooks, queue, and login)" if codex_home else ""))
         t0 = time.monotonic()
         code, output = _run_command_with_timer(narrator, "starting Codex", spawn, repo_root, timeout)
         try:
@@ -284,11 +309,12 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
             output = f"{output}\n{exc}" if output else str(exc)
             code = code or 1
         narrator.lines(output)
-        finish(step_record(2, "Start a Codex peer from a Claude session", shlex.join(spawn), output, time.monotonic() - t0,
+        finish(step_record(n, "Start a Codex peer from a Claude session", shlex.join(spawn), output, time.monotonic() - t0,
                            "ok" if code == 0 else "failed"))
 
         # 3
-        narrator.step(3, "Claude sees the new peer")
+        n = nxt()
+        narrator.step(n, "Claude sees the new peer")
         narrator.command("cxpeer list")
         narrator.note("the same list a Claude session gets from ListAgents")
         t0 = time.monotonic()
@@ -297,7 +323,21 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
         marked = mark_peer_line(focused, peer_name) if peer_name else focused
         narrator.lines(focused, highlight=peer_name)
         list_ok = code == 0 and bool(peer_name) and peer_name in list_output
-        finish(step_record(3, "Claude sees the new peer", "cxpeer list", marked, time.monotonic() - t0, "ok" if list_ok else "failed"))
+        finish(step_record(n, "Claude sees the new peer", "cxpeer list", marked, time.monotonic() - t0, "ok" if list_ok else "failed"))
+
+        if second_registry:
+            n = nxt()
+            narrator.step(n, "A second Claude account sees it too")
+            env_cmd = f"CXPEER_CLAUDE_SESSIONS_DIR={shlex.quote(second_registry)} cxpeer list"
+            narrator.command(env_cmd)
+            narrator.note("the other account's registry, read on its own; the bridge registered there as well")
+            t0 = time.monotonic()
+            code2, out2 = _run_command(["env", f"CXPEER_CLAUDE_SESSIONS_DIR={second_registry}", "cxpeer", "list"], repo_root)
+            focused2 = focus_peer_lines(out2, ("claude-journey", peer_name or "codex-journey"))
+            narrator.lines(focused2, highlight=peer_name)
+            ok2 = code2 == 0 and bool(peer_name) and peer_name in out2
+            finish(step_record(n, "A second Claude account sees it too", env_cmd,
+                               mark_peer_line(focused2, peer_name) if peer_name else focused2, time.monotonic() - t0, "ok" if ok2 else "failed"))
 
         if code == 0 and peer_name:
             receiver = registry.resolve(peer_name)
@@ -307,7 +347,8 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
             own_address = fake.address
 
             # 4
-            narrator.step(4, "Claude gives Codex a real task")
+            n = nxt()
+            narrator.step(n, "Claude gives Codex a real task")
             request, idle = build_frames(TASK_ONE, own_address, from_name="claude-journey")
             narrator.send(peer_name, TASK_ONE)
             narrator.note(f"two JSON lines to {receiver.sock}: the auth line, then the message; plus a notify_when_idle subscription")
@@ -327,12 +368,13 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
             if notice:
                 narrator.received("idle notice", notice_detail or "(no detail)", notice_at)
             step4_ok = bool(answer and notice)
-            finish(step_record(4, "Claude gives Codex a real task", _wire_command(receiver.sock, receiver_token, request, idle),
+            finish(step_record(n, "Claude gives Codex a real task", _wire_command(receiver.sock, receiver_token, request, idle),
                                f"answer (+{answer_at:.2f}s): {answer_text}\npeer_idle_notice (+{notice_at:.2f}s): {notice_detail}",
                                time.monotonic() - t0, "ok" if step4_ok else "failed"))
 
             # 5
-            narrator.step(5, "Codex reaches out on its own")
+            n = nxt()
+            narrator.step(n, "Codex reaches out on its own")
             second, _ = build_frames(TASK_TWO, own_address, from_name="claude-journey")
             narrator.send(peer_name, TASK_TWO)
             narrator.note("inside Codex's sandbox sockets are blocked; cxpeer send goes through a file outbox the bridge polls")
@@ -352,18 +394,19 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
             if reply:
                 narrator.received("answer", reply_text, reply_at)
             step5_ok = bool(relay and reply)
-            finish(step_record(5, "Codex reaches out on its own", _wire_command(receiver.sock, receiver_token, second),
+            finish(step_record(n, "Codex reaches out on its own", _wire_command(receiver.sock, receiver_token, second),
                                f"relayed message (+{relay_at:.2f}s): {relay_text}\nanswer (+{reply_at:.2f}s): {reply_text}",
                                time.monotonic() - t0, "ok" if step5_ok else "failed"))
         else:
-            for n, title in ((4, "Claude gives Codex a real task"), (5, "Codex reaches out on its own")):
-                finish(step_record(n, title, "(not run)", "step 2 did not start a peer", 0.0, "failed"))
+            for title in ("Claude gives Codex a real task", "Codex reaches out on its own"):
+                finish(step_record(nxt(), title, "(not run)", "step 2 did not start a peer", 0.0, "failed"))
     except (LookupError, OSError, RuntimeError) as exc:
-        finish(step_record(4, "Claude gives Codex a real task", "(wire exchange failed)", str(exc), 0.0, "failed"))
-        finish(step_record(5, "Codex reaches out on its own", "(not run)", "wire exchange failed", 0.0, "failed"))
+        finish(step_record(nxt(), "Claude gives Codex a real task", "(wire exchange failed)", str(exc), 0.0, "failed"))
+        finish(step_record(nxt(), "Codex reaches out on its own", "(not run)", "wire exchange failed", 0.0, "failed"))
     finally:
-        # 6
-        narrator.step(6, "Tear down")
+        # last
+        n = nxt()
+        narrator.step(n, "Tear down")
         t0 = time.monotonic()
         commands: list[str] = []
         outputs: list[str] = []
@@ -386,7 +429,7 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
         commands.append("deregister claude-journey")
         outputs.append("deregistered claude-journey")
         narrator.note("deregistered claude-journey")
-        finish(step_record(6, "Tear down", "\n".join(commands), "\n".join(outputs), time.monotonic() - t0,
+        finish(step_record(n, "Tear down", "\n".join(commands), "\n".join(outputs), time.monotonic() - t0,
                            "ok" if kill_ok and status_code == 0 else "failed"))
 
     total = time.monotonic() - started
@@ -411,13 +454,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=120.0, help="seconds to wait for each peer response")
     parser.add_argument("--record", type=Path, help="write a Markdown transcript to this path")
     parser.add_argument("--plain", action="store_true", help="no colours, typing, or timers (default when not a terminal)")
+    parser.add_argument("--codex-home", help="run the Codex peer from this CODEX_HOME (a second Codex account)")
+    parser.add_argument("--second-registry", help="a second Claude account's sessions dir to check the peer shows up in")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     live = sys.stdout.isatty() and not args.plain
-    return run_journey(args.keep, args.timeout, args.record, Path(__file__).resolve().parents[1], Narrator(live))
+    return run_journey(args.keep, args.timeout, args.record, Path(__file__).resolve().parents[1], Narrator(live),
+                       codex_home=str(Path(args.codex_home).expanduser()) if args.codex_home else None,
+                       second_registry=str(Path(args.second_registry).expanduser()) if args.second_registry else None)
 
 
 if __name__ == "__main__":
