@@ -162,6 +162,30 @@ the socket:
 The client switches to files on its own when a socket connect raises PermissionError or
 `ps` fails. Outside the sandbox the same commands use the socket.
 
+## Multiple accounts
+
+Two Claude Code accounts on one machine each have their own config home
+(`CLAUDE_CONFIG_DIR`), and with it their own peer registry. The bridge registers a Codex
+peer into every registry it knows about: `~/.claude/sessions` plus any
+`~/.claude-*/sessions` or `~/.claude_*/sessions` that exists. Set
+`CXPEER_CLAUDE_SESSIONS_DIRS` (colon-separated) to name the registries explicitly;
+setting the singular `CXPEER_CLAUDE_SESSIONS_DIR` means that one registry only, no
+discovery. `cxpeer list`, `cxpeer send`, and `cxpeer doctor` read all of them, so both
+accounts see and can message the same Codex session.
+
+Two Codex accounts each have their own `CODEX_HOME`. Install the hooks into each and
+start sessions with the home you want:
+
+```sh
+cxpeer install --codex-home ~/.codex-work
+cxpeer doctor  --codex-home ~/.codex-work
+cxpeer spawn codex --codex-home ~/.codex-work --peer-name codex-work --prompt "..." --wait
+```
+
+Hooks and the bridge inherit the Codex process environment, so each session's bridge
+queues into the right account's Codex. A plain `codex` started with `CODEX_HOME` set in
+the shell works the same way.
+
 ## Commands
 
 - `cxpeer list`: live peers, one per line.
