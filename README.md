@@ -17,7 +17,7 @@ Codex sessions as peers in Claude Code's cross-session messaging
 
 <p align="center"><img src="docs/images/journey.gif" width="900" alt="Recorded run of demo/journey.py: install check, spawn a Codex peer, give it a task, Codex messages back from its sandbox, teardown"></p>
 
-<p align="center">A real run, recorded with asciinema. Left: the Claude side, played by <code>demo/journey.py</code>. Right: the Codex TUI receiving the messages. <a href="docs/user-journey.md">Transcript</a> · <a href="docs/images/journey.mp4">MP4</a> · <a href="docs/journey.cast">cast</a> · <code>scripts/record-journey.sh</code> re-records it.</p>
+<p align="center">A real run, recorded with asciinema; Codex's thinking time is compressed to a few seconds. Left: the Claude side, played by <code>demo/journey.py</code>. Right: the Codex TUI receiving the messages. <b><a href="docs/images/journey.mp4">Watch the MP4</a></b> (title card, step captions, 47 s) · <a href="docs/user-journey.md">transcript</a> · <a href="docs/journey.cast">cast</a></p>
 
 ## Latest news
 
@@ -189,7 +189,7 @@ the shell works the same way.
 
 <p align="center"><img src="docs/images/journey-accounts.gif" width="900" alt="Recorded run with a second Codex home and a second Claude registry: the peer is spawned from the other Codex account and shows up in both Claude registries"></p>
 
-<p align="center">The journey with a second Codex home and a second Claude registry. <a href="docs/user-journey-accounts.md">Transcript</a> · <a href="docs/images/journey-accounts.mp4">MP4</a> · <a href="docs/journey-accounts.cast">cast</a></p>
+<p align="center">The journey with a second Codex home and a second Claude registry. <b><a href="docs/images/journey-accounts.mp4">Watch the MP4</a></b> · <a href="docs/user-journey-accounts.md">transcript</a> · <a href="docs/journey-accounts.cast">cast</a></p>
 
 ## Commands
 
@@ -231,8 +231,10 @@ a script that records its arguments, so nothing touches your real setup. The bri
 tests run it as a subprocess and talk to it over its socket. `scripts/e2e.sh [DIR]`
 starts a real Codex in tmux and prints the peer name; `scripts/e2e.sh down` kills it.
 `python demo/demo.py` runs the whole loop against a real Codex without a Claude session, and
-`python demo/journey.py --record docs/user-journey.md` runs the narrated version, and
-`scripts/record-journey.sh` records it side by side with the Codex TUI (asciinema + agg).
+`python demo/journey.py --record docs/user-journey.md` runs the narrated version,
+`scripts/record-journey.sh` records it side by side with the Codex TUI (asciinema), and
+`scripts/make-demo-video.sh` turns a cast into the README GIF and a captioned MP4
+(`scripts/compress-cast.py` shortens the waits).
 
 Issues and pull requests are welcome. Keep changes small and add a test for the failure
 path, not only the happy one.

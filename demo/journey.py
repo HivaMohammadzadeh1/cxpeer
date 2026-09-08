@@ -165,7 +165,7 @@ class Narrator:
         started = time.monotonic()
         i = 0
         while True:
-            found = poll(0.2)
+            found = poll(0.5)
             elapsed = time.monotonic() - started
             if found or elapsed >= timeout:
                 if self.live:
@@ -298,8 +298,8 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
                  "--prompt", "Say READY and nothing else.", "--wait", "--timeout", str(max(1, int(timeout)))] + home_args
         shown = ["cxpeer", "spawn", "codex", "--peer-name", peer_name, "--prompt", "Say READY and nothing else.", "--wait"] + home_args
         narrator.command(shlex.join(shown))
-        narrator.note("starts codex in tmux, answers its startup prompts, submits the prompt, waits for the peer"
-                      + (" (this Codex account's own hooks, queue, and login)" if codex_home else ""))
+        narrator.note("starts codex in tmux, clicks through its prompts, waits until the peer is registered"
+                      + (" (that Codex account's own hooks, queue, and login)" if codex_home else ""))
         t0 = time.monotonic()
         code, output = _run_command_with_timer(narrator, "starting Codex", spawn, repo_root, timeout)
         try:
@@ -351,7 +351,7 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
             narrator.step(n, "Claude gives Codex a real task")
             request, idle = build_frames(TASK_ONE, own_address, from_name="claude-journey")
             narrator.send(peer_name, TASK_ONE)
-            narrator.note(f"two JSON lines to {receiver.sock}: the auth line, then the message; plus a notify_when_idle subscription")
+            narrator.note("auth line + message on the bridge socket, plus an idle subscription")
             t0 = time.monotonic()
             start_index = fake.peer.count()
             wire.send_frames(receiver.sock, receiver_token, [request], timeout=5.0)
@@ -377,7 +377,7 @@ def run_journey(keep: bool, timeout: float, record_path: Path | None, repo_root:
             narrator.step(n, "Codex reaches out on its own")
             second, _ = build_frames(TASK_TWO, own_address, from_name="claude-journey")
             narrator.send(peer_name, TASK_TWO)
-            narrator.note("inside Codex's sandbox sockets are blocked; cxpeer send goes through a file outbox the bridge polls")
+            narrator.note("Codex's sandbox blocks sockets, so its cxpeer send goes through a file outbox the bridge polls")
             t0 = time.monotonic()
             start_index = fake.peer.count()
             wire.send_frames(receiver.sock, receiver_token, [second], timeout=5.0)
