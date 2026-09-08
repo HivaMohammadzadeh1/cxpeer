@@ -21,7 +21,7 @@ Codex sessions as peers in Claude Code's cross-session messaging
 
 ## Latest news
 
-- [2026-09-07] v0.3.0: several Claude accounts (every `~/.claude*` registry) and several Codex accounts (`--codex-home`) on one machine.
+- [2026-09-07] v0.3.0: several Claude accounts (every `~/.claude*` registry) and several Codex accounts (`--codex-home`) on one machine, with a [recorded run](docs/user-journey-accounts.md).
 - [2026-09-07] A recorded [user journey](docs/user-journey.md): install check, spawn a Codex peer, give it a task, have it message back from inside its sandbox. 41 seconds end to end.
 - [2026-09-07] v0.2.0: `cxpeer doctor`, `cxpeer spawn --wait` with peer names, idle notices (`notify_when_idle`), a self-healing bridge, Linux CI, and a runnable [demo](demo/README.md).
 - [2026-09-07] v0.1.0: first working version. A Claude Code session messaged a live Codex TUI and got the answer back in 8 seconds.
@@ -186,6 +186,10 @@ cxpeer spawn codex --codex-home ~/.codex-work --peer-name codex-work --prompt ".
 Hooks and the bridge inherit the Codex process environment, so each session's bridge
 queues into the right account's Codex. A plain `codex` started with `CODEX_HOME` set in
 the shell works the same way.
+
+<p align="center"><img src="docs/images/journey-accounts.gif" width="900" alt="Recorded run with a second Codex home and a second Claude registry: the peer is spawned from the other Codex account and shows up in both Claude registries"></p>
+
+<p align="center">The journey with a second Codex home and a second Claude registry. <a href="docs/user-journey-accounts.md">Transcript</a> · <a href="docs/images/journey-accounts.mp4">MP4</a> · <a href="docs/journey-accounts.cast">cast</a></p>
 
 ## Commands
 
