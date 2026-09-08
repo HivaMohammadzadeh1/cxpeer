@@ -21,6 +21,7 @@ Codex sessions as peers in Claude Code's cross-session messaging
 
 ## Latest news
 
+- [2026-09-07] v0.3.0: several Claude accounts (every `~/.claude*` registry) and several Codex accounts (`--codex-home`) on one machine.
 - [2026-09-07] A recorded [user journey](docs/user-journey.md): install check, spawn a Codex peer, give it a task, have it message back from inside its sandbox. 41 seconds end to end.
 - [2026-09-07] v0.2.0: `cxpeer doctor`, `cxpeer spawn --wait` with peer names, idle notices (`notify_when_idle`), a self-healing bridge, Linux CI, and a runnable [demo](demo/README.md).
 - [2026-09-07] v0.1.0: first working version. A Claude Code session messaged a live Codex TUI and got the answer back in 8 seconds.

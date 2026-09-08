@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cxpeer"
-version = "0.2.0"
+version = "0.3.0"
 description = "Make Codex CLI sessions peers of Claude Code cross-session messaging"
 requires-python = ">=3.11"
 license = {text = "PolyForm-Noncommercial-1.0.0"}
