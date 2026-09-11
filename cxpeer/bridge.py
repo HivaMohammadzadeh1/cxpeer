@@ -35,6 +35,8 @@ PENDING_TTL_SECONDS = float(os.environ.get("CXPEER_PENDING_TTL_SECONDS") or 15 *
 RELAY_SEND_TIMEOUT_SECONDS = 2.0
 CODEX_QUEUE_TIMEOUT_SECONDS = 30.0
 UNDELIVERABLE_NOTE = "cxpeer: could not deliver your message to Codex session {name}: {error}"
+REPLY_MAX_CHARS = int(os.environ.get("CXPEER_REPLY_MAX_CHARS") or 4000)
+SHORT_ID = 8
 EMPTY_TURN_NOTE = "(Codex ended the turn without a final message.)"
 INTERRUPTED_NOTE = "(Codex's turn was interrupted before it answered.)"
 UNANSWERED_NOTE = (
@@ -50,13 +52,27 @@ def default_name(cwd: str, thread: str) -> str:
     return f"codex-{Path(cwd).name or 'root'}-{suffix}"
 
 
-def queue_text(content: str, msg_id: str, from_name: str) -> str:
-    """The text handed to `codex queue`: the peer's message plus how replies work."""
-    return (
-        f"{content}\n\n[cxpeer msg_id={msg_id}] Your final answer this turn is forwarded to "
-        f"{from_name} automatically. To message any session yourself run: "
-        f'cxpeer send --to <name> "text" (cxpeer list shows names).'
-    )
+def queue_text(content: str, msg_id: str, from_name: str, first: bool = True) -> str:
+    """The text handed to `codex queue`: a compact header, the message, and the pairing marker.
+
+    Claude's XML envelope is replaced by one short line; the marker carries a short id (the
+    bridge pairs by prefix). The how-it-works hint goes out once per session; the skill has the rest.
+    """
+    text, _, envelope_name = wire.strip_envelope(content)
+    name = envelope_name or from_name
+    short = msg_id[:SHORT_ID]
+    out = f"[peer message from {name} · id {short}]\n{text.strip()}\n[cxpeer msg_id={short}]"
+    if first:
+        out += (f"\nYour final message this turn is forwarded to {name} automatically; "
+                f"to message a session yourself: cxpeer send --to NAME \"text\".")
+    return out
+
+
+def truncate_reply(text: str, limit: int = REPLY_MAX_CHARS) -> tuple[str, bool]:
+    """Cap a forwarded reply; the caller stores the full text for `cxpeer read`."""
+    if len(text) <= limit:
+        return text, False
+    return text[:limit].rstrip(), True
 
 
 def reply_socket(from_addr: object) -> str | None:
@@ -118,6 +134,9 @@ class Bridge:
         self.pending: dict[str, PendingRequest] = {}
         self.active: str | None = None
         self.idle_subscriptions: dict[str, IdleSubscription] = {}  # keyed by reply socket, one-shot
+        self.queued_count = 0
+        self.chars_in = 0   # text queued into Codex
+        self.chars_out = 0  # text forwarded to Claude peers
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._server: socket.socket | None = None
@@ -140,6 +159,10 @@ class Bridge:
     @property
     def lock_path(self) -> Path:
         return bridges_dir() / f"{self.thread}.lock"
+
+    @property
+    def replies_dir(self) -> Path:
+        return bridges_dir().parent / "replies" / self.thread
 
     def acquire_thread_lock(self) -> bool:
         """One bridge per Codex thread: hooks can race to spawn, the lock decides who stays."""
@@ -368,9 +391,14 @@ class Bridge:
         from_name = from_name or str(frame.get("from") or "unknown")
         with self._lock:
             self.pending[msg_id] = PendingRequest(msg_id, reply_sock, from_name, time.time())
+            first = self.queued_count == 0
+            self.queued_count += 1
         LOG.info("user message %s from %s (%s)", msg_id, from_name, reply_sock)
 
-        error = self._queue_into_codex(queue_text(content, msg_id, from_name))
+        text = queue_text(content, msg_id, from_name, first=first)
+        with self._lock:
+            self.chars_in += len(text)
+        error = self._queue_into_codex(text)
         if error is None:
             return None
         LOG.error("codex queue failed for %s: %s", msg_id, error)
@@ -426,11 +454,20 @@ class Bridge:
 
     def on_turn_started(self, frame: dict) -> None:
         self._set_status("busy")
-        msg_id = frame.get("msg_id")
+        marker = frame.get("msg_id")
         with self._lock:
-            self.active = msg_id if isinstance(msg_id, str) and msg_id in self.pending else None
+            self.active = self._pending_id_for(marker)
         LOG.info("turn started (active request: %s)", self.active)
         return None
+
+    def _pending_id_for(self, marker: object) -> str | None:
+        """The pending msg_id a hook marker refers to; markers carry the short id (prefix)."""
+        if not isinstance(marker, str) or not marker:
+            return None
+        if marker in self.pending:
+            return marker
+        matches = [k for k in self.pending if k.startswith(marker)]
+        return matches[0] if len(matches) == 1 else None
 
     def on_turn_ended(self, frame: dict) -> None:
         self._set_status("idle")
@@ -438,25 +475,46 @@ class Bridge:
             request = self.pending.pop(self.active, None) if self.active else None
             self.active = None
         answer = frame.get("last_assistant_message")
+        answer_text = answer if isinstance(answer, str) else ""
         with self._lock:
             still_pending = len(self.pending)
+        # a forwarded answer needs no repeat in the idle notice; a human turn's text is the detail
+        detail = f"answered {request.from_name} ({len(answer_text)} chars)" if request else (answer_text or None)
         if still_pending:
             LOG.info("holding idle notices: %d request(s) still queued", still_pending)
         else:
-            self._fire_idle_notices("idle", answer if isinstance(answer, str) else None)
+            self._fire_idle_notices("idle", detail)
         if request is None:
             LOG.info("turn ended; no peer request to answer")
             return None
         if frame.get("reason") == "interrupted":
             text = INTERRUPTED_NOTE
+        elif answer_text.strip():
+            text, cut = truncate_reply(answer_text)
+            if cut:
+                path = self._store_reply(request.msg_id, answer_text)
+                text += (f"\n… truncated: {len(text)} of {len(answer_text)} chars shown; "
+                         f"full text: cxpeer read {request.msg_id[:SHORT_ID]}" + (f" ({path})" if path else ""))
         else:
-            text = answer if isinstance(answer, str) and answer.strip() else EMPTY_TURN_NOTE
+            text = EMPTY_TURN_NOTE
         if request.reply_sock is None:
             LOG.warning("request %s had no reply address; answer dropped", request.msg_id)
             return None
-        LOG.info("forwarding answer for %s to %s", request.msg_id, request.from_name)
+        LOG.info("forwarding answer for %s to %s (%d chars)", request.msg_id, request.from_name, len(text))
+        with self._lock:
+            self.chars_out += len(text)
         self._try_send(request.reply_sock, text)
         return None
+
+    def _store_reply(self, msg_id: str, text: str) -> str | None:
+        try:
+            self.replies_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            path = self.replies_dir / f"{msg_id}.md"
+            path.write_text(text)
+            return str(path)
+        except OSError as exc:
+            LOG.error("could not store the full reply for %s: %s", msg_id, exc)
+            return None
 
     def on_relay(self, frame: dict) -> dict:
         to, text = frame.get("to"), frame.get("text")
@@ -472,14 +530,17 @@ class Bridge:
             self._send(peer.sock, text, timeout=RELAY_SEND_TIMEOUT_SECONDS)
         except (LookupError, OSError) as exc:
             return {"ok": False, "error": f"send to {peer.name} failed: {exc}"}
+        with self._lock:
+            self.chars_out += len(text)
         LOG.info("relayed %d chars to %s", len(text), peer.name)
         return {"ok": True, "to": peer.name}
 
     def on_ping(self, frame: dict) -> dict:
         with self._lock:
             pending, subscribers = len(self.pending), len(self.idle_subscriptions)
+            chars_in, chars_out = self.chars_in, self.chars_out
         return {"ok": True, "name": self.name, "thread": self.thread, "status": self.status,
-                "pending": pending, "idle_subscribers": subscribers}
+                "pending": pending, "idle_subscribers": subscribers, "chars_in": chars_in, "chars_out": chars_out}
 
     def on_shutdown(self, frame: dict) -> dict:
         LOG.info("shutdown requested")

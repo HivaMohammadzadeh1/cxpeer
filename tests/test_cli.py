@@ -129,3 +129,26 @@ def test_send_sandboxed_without_bridge_reports_blocked_sockets(monkeypatch, caps
 def test_doctor_dispatches(monkeypatch):
     monkeypatch.setattr(cli.doctor, "run", lambda codex_home=None: 0)
     assert cli.main(["doctor"]) == 0
+
+
+def test_read_prints_a_stored_reply_by_id_prefix(isolated_env, capsys):
+    replies = isolated_env["home"] / "replies" / "thread-1"
+    replies.mkdir(parents=True)
+    (replies / "1e66d4ef-4c1b-4c50-9d63-0b6b3a8f2c11.md").write_text("the whole answer\n")
+    assert cli.main(["read", "1e66d4ef"]) == 0
+    assert capsys.readouterr().out == "the whole answer\n"
+
+
+def test_read_unknown_id_fails_with_a_message(isolated_env, capsys):
+    assert cli.main(["read", "nope"]) == 1
+    assert "no stored reply matches 'nope'" in capsys.readouterr().err
+
+
+def test_status_shows_chars_in_and_out(isolated_env, monkeypatch, capsys):
+    from cxpeer import client
+    info = client.BridgeInfo(pid=1, sock="/tmp/x.sock", token="t", name="codex-x", cwd="/p", thread="t")
+    monkeypatch.setattr(client, "list_bridges", lambda: [info])
+    monkeypatch.setattr(client, "ping", lambda b: {"status": "idle", "pending": 0, "chars_in": 400, "chars_out": 1200})
+    assert cli.main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert "in=400c(~100t)" in out and "out=1200c(~300t)" in out

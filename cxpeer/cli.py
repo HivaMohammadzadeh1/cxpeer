@@ -8,7 +8,7 @@ import sys
 
 from pathlib import Path
 
-from cxpeer import bridge, client, doctor, hooks, install, registry, spawn
+from cxpeer import bridge, client, doctor, hooks, install, paths, registry, spawn
 
 HOOK_EVENTS = ("session-start", "user-prompt-submit", "stop", "interrupt", "session-end")
 
@@ -77,9 +77,25 @@ def _cmd_status(args: argparse.Namespace) -> int:
         try:
             info = client.ping(b)
             state = f"{info.get('status', '?')}  pending={info.get('pending', '?')}"
+            if "chars_in" in info:
+                state += f"  in={info['chars_in']}c(~{info['chars_in'] // 4}t)  out={info['chars_out']}c(~{info['chars_out'] // 4}t)"
         except (OSError, RuntimeError) as e:
             state = f"unreachable ({e})"
         print(f"{b.name}  pid={b.pid}  thread={b.thread}  {state}  {b.cwd}")
+    return 0
+
+
+def _cmd_read(args: argparse.Namespace) -> int:
+    """Print the full text of a reply the bridge truncated; ids may be the 8-char prefix."""
+    root = Path(paths.state_dir()) / "replies"
+    matches = sorted(root.glob(f"*/{args.msg_id}*.md")) if root.exists() else []
+    if not matches:
+        print(f"no stored reply matches {args.msg_id!r} under {root}", file=sys.stderr)
+        return 1
+    if len(matches) > 1:
+        print("ambiguous id; matches: " + ", ".join(m.stem for m in matches), file=sys.stderr)
+        return 1
+    sys.stdout.write(matches[0].read_text())
     return 0
 
 
@@ -127,6 +143,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--dry-run", action="store_true", help="print what would be written")
     p_install.add_argument("--codex-home", help="install into this Codex home instead of ~/.codex (a second Codex account)")
     p_install.set_defaults(func=_cmd_install)
+
+    p_read = sub.add_parser("read", help="print the full text of a reply that was forwarded truncated")
+    p_read.add_argument("msg_id", help="the id from the truncation note (8-char prefix is enough)")
+    p_read.set_defaults(func=_cmd_read)
 
     p_doctor = sub.add_parser("doctor", help="diagnose why peers are not showing up in ListAgents; runs a self-test")
     p_doctor.add_argument("--codex-home", help="check this Codex home instead of ~/.codex (a second Codex account)")

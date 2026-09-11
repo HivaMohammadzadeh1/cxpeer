@@ -21,6 +21,7 @@ Codex sessions as peers in Claude Code's cross-session messaging
 
 ## Latest news
 
+- [2026-09-10] v0.4.0: context budget. A peer message costs Codex about 17 tokens of framing instead of 87, long answers are capped with the full text one `cxpeer read` away, and both skills are a third of their old size. Numbers in [Context budget](#context-budget). Run `cxpeer install` again to get the new Codex skill.
 - [2026-09-07] v0.3.0: several Claude accounts (every `~/.claude*` registry) and several Codex accounts (`--codex-home`) on one machine, with a [recorded run](docs/user-journey-accounts.md).
 - [2026-09-07] A recorded [user journey](docs/user-journey.md): install check, spawn a Codex peer, give it a task, have it message back from inside its sandbox. 41 seconds end to end.
 - [2026-09-07] v0.2.0: `cxpeer doctor`, `cxpeer spawn --wait` with peer names, idle notices (`notify_when_idle`), a self-healing bridge, Linux CI, and a runnable [demo](demo/README.md).
@@ -163,6 +164,26 @@ the socket:
 The client switches to files on its own when a socket connect raises PermissionError or
 `ps` fails. Outside the sandbox the same commands use the socket.
 
+### Context budget
+
+Every message a session receives is paid for in tokens, so the bridge keeps its own framing small.
+
+- **One line of framing, not an XML envelope.** Claude wraps peer messages in a `<cross-session-message>` block with the sender's socket path. The bridge rewrites it to `[peer message from NAME · id XXXXXXXX]` and a matching marker on the last line. The message ids are shortened to 8 characters; the bridge pairs the hook's marker by prefix.
+- **The how-it-works hint goes out once.** The first message in a Codex session ends with one sentence about auto-forwarding and `cxpeer send`. Later messages carry the marker only; the installed skill has the rest.
+- **Long answers are capped.** A forwarded reply longer than 4000 characters (`CXPEER_REPLY_MAX_CHARS`) is cut, the full text is written to `~/.cxpeer/replies/<thread>/<id>.md`, and the note at the end says `full text: cxpeer read <id>`. Read it only when you need it.
+- **Idle notices do not repeat the answer.** When the answer was already forwarded, the notice's detail is `answered NAME (N chars)`.
+- **Both skills tell the model to send paths, not contents.** The two sessions share a machine, so a file path costs a dozen tokens where its contents would cost thousands.
+
+Measured on a 30-character message, per message, characters of framing Codex reads:
+
+| | v0.3.0 | v0.4.0 first message | v0.4.0 later messages |
+| --- | --- | --- | --- |
+| Framing | 351 chars (~87 tokens) | 204 chars (~51 tokens) | 71 chars (~17 tokens) |
+| Codex skill (loaded once) | 1445 bytes | 691 bytes | |
+| Claude skill (loaded once) | 2319 bytes | 869 bytes | |
+
+`cxpeer status` prints the characters each bridge has queued into Codex and forwarded out, with a rough token count, so you can see what a conversation cost.
+
 ## Multiple accounts
 
 Two Claude Code accounts on one machine each have their own config home
@@ -195,7 +216,8 @@ the shell works the same way.
 
 - `cxpeer list`: live peers, one per line.
 - `cxpeer send --to NAME TEXT`: message a peer. `TEXT` can be `-` for stdin.
-- `cxpeer status`: every bridge, whether it answers, requests waiting for a turn.
+- `cxpeer status`: every bridge, whether it answers, requests waiting for a turn, characters in and out.
+- `cxpeer read ID`: the full text of a reply the bridge forwarded truncated. The 8-character id from the note is enough.
 - `cxpeer doctor`: the checks described above.
 - `cxpeer install [--dry-run]`: install or update the hooks and skill.
 - `cxpeer spawn codex|claude [--cwd DIR] [--name N] [--peer-name N] [--prompt TEXT] [--wait] [--timeout S] [-- ARGS...]`
@@ -216,6 +238,7 @@ All paths can be overridden, which is how the tests stay away from real state.
 | `CXPEER_CODEX_HOME` | `~/.codex` |
 | `CXPEER_TMUX_BIN` | `tmux` |
 | `CXPEER_PENDING_TTL_SECONDS` | `900` |
+| `CXPEER_REPLY_MAX_CHARS` | `4000` (longer replies are cut; `cxpeer read` has the rest) |
 
 Logs go to `~/.cxpeer/logs/hooks.log` and `~/.cxpeer/logs/<thread>.log`.
 

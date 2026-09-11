@@ -182,7 +182,8 @@ def test_bridge_registers_as_a_peer_and_answers_ping(bridge, isolated_env):
     assert json.loads(keys[0].read_text())["peerToken"] == state["token"]
 
     reply = talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)
-    assert reply == {"ok": True, "name": "codex-proj-ce", "thread": THREAD, "status": "idle", "pending": 0, "idle_subscribers": 0}
+    assert reply == {"ok": True, "name": "codex-proj-ce", "thread": THREAD, "status": "idle", "pending": 0,
+                     "idle_subscribers": 0, "chars_in": 0, "chars_out": 0}
 
 
 def test_wrong_token_is_dropped_but_bridge_stays_up(bridge):
@@ -206,8 +207,9 @@ def test_user_frame_is_queued_into_codex_with_reply_trailer(bridge, claude, fake
     argv = calls[0]
     assert argv[:4] == ["queue", "--thread", THREAD, "--message"]
     text = argv[4]
-    assert 'from-name="claude-fake"' in text and "Say PONG." in text
-    assert "[cxpeer msg_id=m-1]" in text and "forwarded to claude-fake automatically" in text
+    assert text.startswith("[peer message from claude-fake · id m-1]\nSay PONG.\n[cxpeer msg_id=m-1]")
+    assert "<cross-session-message" not in text  # Claude's XML envelope is not paid for twice
+    assert "forwarded to claude-fake automatically" in text  # the hint rides on the first message only
     assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["pending"] == 1
 
 
@@ -230,8 +232,10 @@ def test_turn_ended_forwards_answer_to_the_requesting_peer(bridge, claude, isola
     content = answer["message"]["content"]
     assert content.startswith(f'<cross-session-message from="uds:{state["sock"]}" from-name="codex-proj-ce"')
     assert "\nPONG\n" in content
-    assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True) == {
+    ping = talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)
+    assert {k: ping[k] for k in ("ok", "name", "thread", "status", "pending", "idle_subscribers")} == {
         "ok": True, "name": "codex-proj-ce", "thread": THREAD, "status": "idle", "pending": 0, "idle_subscribers": 0}
+    assert ping["chars_out"] == len("PONG") and ping["chars_in"] > len("Say PONG.")
 
 
 def test_human_turn_does_not_answer_a_pending_peer_request(bridge, claude):
@@ -400,7 +404,7 @@ def test_idle_subscription_fires_after_the_turn_with_the_answer_as_detail(bridge
     assert len(notices) == 1
     n = notices[0]
     assert n["type"] == "control" and n["orig_msg_id"] == "sub-7" and n["state"] == "idle"
-    assert n["from"] == f"uds:{state['sock']}" and n["detail"] == "PONG done"
+    assert n["from"] == f"uds:{state['sock']}" and n["detail"] == "answered claude-fake (12 chars)"
     assert n["finished_at"].endswith("+00:00")
     assert talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)["idle_subscribers"] == 0
 
@@ -435,7 +439,7 @@ def test_idle_subscription_waits_for_a_queued_message_to_be_answered(bridge, cla
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "PONG"}], expect_reply=False)
     frames = claude.wait_for_frames(4)
     notices = [f for f in frames if f.get("action") == "peer_idle_notice"]
-    assert len(notices) == 1 and notices[0]["orig_msg_id"] == "sub-q" and notices[0]["detail"] == "PONG"
+    assert len(notices) == 1 and notices[0]["orig_msg_id"] == "sub-q" and notices[0]["detail"] == "answered claude-fake (4 chars)"
 
 
 def test_second_bridge_for_the_same_thread_exits_and_leaves_the_first(bridge, isolated_env):
@@ -464,4 +468,50 @@ def test_idle_notice_waits_until_every_queued_request_is_answered(bridge, claude
     talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "B"}], expect_reply=False)
     frames = claude.wait_for_frames(6)
     notices = [f for f in frames if f.get("action") == "peer_idle_notice"]
-    assert len(notices) == 1 and notices[0]["detail"] == "B"
+    assert len(notices) == 1 and notices[0]["detail"] == "answered claude-fake (1 chars)"
+
+
+def test_second_message_in_a_session_carries_only_the_marker(bridge, claude, fake_codex):
+    _, state = bridge
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "first", "m-first")], expect_reply=False)
+    wait_pending(state, 1)
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "second", "m-second")], expect_reply=False)
+    wait_pending(state, 2)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and len(read_codex_calls(fake_codex)) < 2:
+        time.sleep(0.05)
+    by_marker = {t.split("[cxpeer msg_id=")[1].split("]")[0]: t for t in (call[4] for call in read_codex_calls(fake_codex))}
+    first, second = by_marker["m-first"], by_marker["m-second"]  # queue order is not connection order
+    assert "forwarded to claude-fake automatically" in first
+    assert second == "[peer message from claude-fake · id m-second]\nsecond\n[cxpeer msg_id=m-second]"
+
+
+def test_hook_marker_with_the_short_id_pairs_with_the_full_msg_id(bridge, claude):
+    _, state = bridge
+    full = "1e66d4ef-4c1b-4c50-9d63-0b6b3a8f2c11"
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "Say PONG.", full)], expect_reply=False)
+    wait_pending(state, 1)
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": full[:8]}], expect_reply=False)
+    wait_status(state, "busy")
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": "PONG"}], expect_reply=False)
+    frames = claude.wait_for_frames(2)
+    assert "\nPONG\n" in frames[1]["message"]["content"]
+    wait_pending(state, 0)
+
+
+def test_long_answer_is_truncated_and_stored_for_cxpeer_read(bridge, claude, isolated_env):
+    _, state = bridge
+    talk(state["sock"], state["token"], [claude_user_frame(claude, "dump it", "m-long")], expect_reply=False)
+    wait_pending(state, 1)
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_started", "msg_id": "m-long"}], expect_reply=False)
+    wait_status(state, "busy")
+    answer = "x" * 5000
+    talk(state["sock"], state["token"], [{"type": "cxpeer.turn_ended", "last_assistant_message": answer}], expect_reply=False)
+    frames = claude.wait_for_frames(2)
+    content = frames[1]["message"]["content"]
+    assert "x" * 4000 in content and "x" * 4001 not in content
+    assert "truncated: 4000 of 5000 chars shown; full text: cxpeer read m-long" in content
+    stored = isolated_env["home"] / "replies" / THREAD / "m-long.md"
+    assert stored.read_text() == answer
+    ping = talk(state["sock"], state["token"], [{"type": "cxpeer.ping"}], expect_reply=True)
+    assert 4000 < ping["chars_out"] < 4400  # the capped text plus the truncation note
