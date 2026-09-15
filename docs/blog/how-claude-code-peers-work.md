@@ -108,4 +108,4 @@ All of this rests on an undocumented internal. `peerProtocol` is 1 today; a Clau
 
 It has only been used on macOS. Tests pass on Ubuntu in CI, but nobody has run a Linux peer by hand, and there is no Windows support.
 
-The code, the design notes, and a recorded run are at https://github.com/HivaMohammadzadeh1/cxpeer. 154 tests, standard library only, one process per Codex session.
+The code, the design notes, and a recorded run are at https://github.com/HivaMohammadzadeh1/cxpeer. 199 tests, standard library only, one process per Codex session.
