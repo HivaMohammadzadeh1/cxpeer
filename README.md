@@ -19,8 +19,16 @@ Codex sessions as peers in Claude Code's cross-session messaging
 
 <p align="center">A real run, recorded with asciinema; Codex's thinking time is compressed to a few seconds. Left: the Claude side, played by <code>demo/journey.py</code>. Right: the Codex TUI receiving the messages. <b><a href="docs/images/journey.mp4">Watch the MP4</a></b> (title card, step captions, 47 s) · <a href="docs/user-journey.md">transcript</a> · <a href="docs/journey.cast">cast</a></p>
 
+<p align="center">
+<a href="https://github.com/HivaMohammadzadeh1/cxpeer/actions/workflows/test.yml"><img alt="CI" src="https://github.com/HivaMohammadzadeh1/cxpeer/actions/workflows/test.yml/badge.svg"></a>
+<a href="LICENSE"><img alt="License: PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg"></a>
+<a href="pyproject.toml"><img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-blue.svg"></a>
+<a href="https://hivam.org/cxpeer/"><img alt="Site" src="https://img.shields.io/badge/site-hivam.org%2Fcxpeer-0B7A63.svg"></a>
+</p>
+
 ## Latest news
 
+- [2026-09-15] v0.5.0: a context meter and lean peers. `cxpeer list` shows every peer's live prompt size from the transcripts both tools write; `cxpeer spawn --lean` starts a Codex or Claude peer without MCP servers (3.7k tokens for a trivial Codex turn instead of 15k). Landing page at [hivam.org/cxpeer](https://hivam.org/cxpeer/), write-up on the protocol in [docs/blog](docs/blog/how-claude-code-peers-work.md).
 - [2026-09-10] v0.4.0: context budget. A peer message costs Codex about 17 tokens of framing instead of 87, long answers are capped with the full text one `cxpeer read` away, and both skills are a third of their old size. Numbers in [Context budget](#context-budget). Run `cxpeer install` again to get the new Codex skill.
 - [2026-09-07] v0.3.0: several Claude accounts (every `~/.claude*` registry) and several Codex accounts (`--codex-home`) on one machine, with a [recorded run](docs/user-journey-accounts.md).
 - [2026-09-07] A recorded [user journey](docs/user-journey.md): install check, spawn a Codex peer, give it a task, have it message back from inside its sandbox. 41 seconds end to end.
@@ -184,6 +192,15 @@ Measured on a 30-character message, per message, characters of framing Codex rea
 
 `cxpeer status` prints the characters each bridge has queued into Codex and forwarded out, with a rough token count, so you can see what a conversation cost.
 
+The larger cost is the per-turn context of each session, because every message wakes a turn and a turn re-sends the whole thread. `cxpeer list` reads the tail of the transcripts both tools already write (the usage block on Claude's assistant messages, the `token_count` events in Codex rollouts) and prints each peer's last prompt size:
+
+```
+codex-ctx [c6aeb4]  busy  ctx=22k/258k (8%)  /Users/me/proj
+hivamoh-7c [970409]  idle  ctx=291k  /Users/me
+```
+
+A Codex session with the usual MCP servers starts around 15k tokens; `cxpeer spawn codex --lean` starts one without them, and a trivial turn costs 3.7k. Use lean peers for the heavy work and keep only their summaries in the session you are driving.
+
 ## Multiple accounts
 
 Two Claude Code accounts on one machine each have their own config home
@@ -214,13 +231,13 @@ the shell works the same way.
 
 ## Commands
 
-- `cxpeer list`: live peers, one per line.
+- `cxpeer list`: live peers, one per line, with `ctx=` showing each one's last prompt size (Codex peers also show the window and a `!` past 70%).
 - `cxpeer send --to NAME TEXT`: message a peer. `TEXT` can be `-` for stdin.
 - `cxpeer status`: every bridge, whether it answers, requests waiting for a turn, characters in and out.
 - `cxpeer read ID`: the full text of a reply the bridge forwarded truncated. The 8-character id from the note is enough.
 - `cxpeer doctor`: the checks described above.
 - `cxpeer install [--dry-run]`: install or update the hooks and skill.
-- `cxpeer spawn codex|claude [--cwd DIR] [--name N] [--peer-name N] [--prompt TEXT] [--wait] [--timeout S] [-- ARGS...]`
+- `cxpeer spawn codex|claude [--lean] [--cwd DIR] [--name N] [--peer-name N] [--prompt TEXT] [--wait] [--timeout S] [-- ARGS...]`. `--lean` starts Codex with `-c mcp_servers={}` and Claude with `--strict-mcp-config --mcp-config "" --disable-slash-commands`; both still register as peers (`--bare` would not).
 - `cxpeer bridge --thread ID --cwd DIR [--name N] [--watch-pid PID]`: run a bridge (the hook does this).
 - `cxpeer hook EVENT`: what the hooks call. Never exits non-zero.
 
