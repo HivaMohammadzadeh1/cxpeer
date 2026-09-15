@@ -22,6 +22,14 @@ sessions too, from inside its sandbox. No daemon, no polling.
 <p align="center"><img src="docs/images/journey.gif" width="900" alt="A Claude session spawns a Codex peer, sends it a task, and gets the answer back; Codex then messages Claude from inside its sandbox"></p>
 <p align="center">Left: the Claude side. Right: the Codex TUI. Real run, thinking time compressed. <a href="docs/images/journey.mp4">MP4 with captions</a>.</p>
 
+## News
+
+- [2026-09-15] v0.5.0: `cxpeer list` shows every peer's live prompt size; `cxpeer spawn --lean` starts peers without MCP servers; landing page at [hivam.org/cxpeer](https://hivam.org/cxpeer/).
+- [2026-09-10] v0.4.0: framing per message cut from 87 tokens to 17; long replies capped, `cxpeer read` has the rest; both skills a third of their size.
+- [2026-09-07] v0.3.0: several Claude accounts and several Codex accounts on one machine.
+- [2026-09-07] v0.2.0: `cxpeer doctor`, `cxpeer spawn --wait`, idle notices, a self-healing bridge, Linux CI.
+- [2026-09-07] v0.1.0: a Claude Code session messaged a live Codex TUI and got the answer back in 8 seconds.
+
 ## Install
 
 Requirements: macOS or Linux, Python 3.11+, Codex CLI 0.153+, Claude Code 2.1.263+. `cxpeer spawn` needs tmux.
