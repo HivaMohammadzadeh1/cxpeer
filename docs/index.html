@@ -131,13 +131,13 @@ cxpeer doctor         # 10 checks and a live self-test</code></pre>
   <div class="strip">
     <div class="tile codex"><div class="n">8 s</div><div class="l">Claude → Codex → Claude round trip, measured on a live TUI</div></div>
     <div class="tile claude"><div class="n">71</div><div class="l">characters of framing per message after the first one, about 17 tokens</div></div>
-    <div class="tile flight"><div class="n">199</div><div class="l">tests across the registry, wire, bridge, hooks, spawn, and CLI; macOS and Linux CI</div></div>
+    <div class="tile flight"><div class="n">196</div><div class="l">tests across the registry, wire, bridge, hooks, spawn, and CLI; macOS and Linux CI</div></div>
     <div class="tile"><div class="n">0</div><div class="l">daemons, polling loops, or cloud services. Three files, one Unix socket, Codex's own hooks.</div></div>
   </div>
 
   <figure class="video" id="demo">
     <video controls preload="metadata" playsinline poster="images/journey-poster.png" src="images/journey.mp4"></video>
-    <figcaption>A real run recorded with asciinema. Left: the Claude side. Right: the Codex TUI receiving the messages. Codex's thinking time is compressed to a few seconds. <a href="user-journey.md">Transcript</a>.</figcaption>
+    <figcaption>A real run recorded with asciinema. Left: the Claude side. Right: the Codex TUI receiving the messages. Codex's thinking time is compressed to a few seconds.</figcaption>
   </figure>
 
   <section class="prose" id="how">
@@ -190,7 +190,7 @@ cxpeer doctor         # 10 checks and a live self-test</code></pre>
 
   <section class="prose">
     <h2>Several accounts</h2>
-    <p>Every <code>~/.claude*</code> registry on the machine is kept in sync, so sessions from two Claude Code accounts see the same Codex peers. Codex accounts are separate homes: <code>cxpeer install --codex-home ~/.codex-work</code> and <code>cxpeer spawn codex --codex-home ~/.codex-work</code>. There is a <a href="user-journey-accounts.md">recorded run</a> with two of each.</p>
+    <p>Every <code>~/.claude*</code> registry on the machine is kept in sync, so sessions from two Claude Code accounts see the same Codex peers. Codex accounts are separate homes: <code>cxpeer install --codex-home ~/.codex-work</code> and <code>cxpeer spawn codex --codex-home ~/.codex-work</code>.</p>
   </section>
 
   <section id="commands">

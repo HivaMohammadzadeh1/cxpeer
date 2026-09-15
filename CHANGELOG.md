@@ -32,7 +32,7 @@ can change the CLI and the wire protocol.
 ### Added
 - Several Codex accounts on one machine. `--codex-home` for `cxpeer install`, `cxpeer doctor`, and `cxpeer spawn`. `install.installed_homes()` finds `~/.codex-*` and `~/.codex_*` homes.
 - Several Claude accounts on one machine. The registry writes and reads every `~/.claude*` registry.
-- A recorded two-account user journey (`docs/user-journey-accounts.md`) and a demo video with captions.
+- A recorded two-account run and a demo video with captions.
 - One bridge per Codex thread, enforced with a file lock. Hooks wait a grace period before they respawn a bridge.
 
 ### Changed
@@ -49,7 +49,7 @@ can change the CLI and the wire protocol.
 - A file outbox, so `cxpeer send` and `cxpeer list` work from inside the Codex sandbox without sockets or `ps`.
 - `scripts/e2e.sh` starts a real Codex in tmux, answers its prompts, and waits for the bridge.
 - Linux CI (ubuntu-latest) next to macOS.
-- A runnable demo (`demo/README.md`) and a recorded 41-second user journey (`docs/user-journey.md`).
+- A runnable demo (`demo/README.md`) and a recorded 41-second user journey.
 
 ### Changed
 - License changed from MIT to PolyForm Noncommercial 1.0.0.

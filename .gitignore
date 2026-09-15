@@ -4,3 +4,7 @@ __pycache__/
 dist/
 build/
 .venv/
+
+# recording outputs; the GIF and MP4 under docs/images are what we ship
+docs/*.cast
+docs/user-journey*.md
