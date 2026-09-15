@@ -149,6 +149,25 @@ def test_prompt_and_extra_args_are_quoted_safely(fake_tmux, proj):
     assert shlex.split(cmd)[-1] == prompt
 
 
+def test_codex_lean_flags_precede_extra_args(fake_tmux, proj):
+    prompt = 'say "hi"; echo $HOME'
+    assert spawn.run("codex", str(proj), None, prompt, ["--model", "custom model"], lean=True) == 0
+    assert shlex.split(fake_tmux.new_session()[-1]) == [
+        "codex", "-c", "mcp_servers={}", "--model", "custom model", prompt,
+    ]
+
+
+def test_claude_lean_flags_precede_extra_args(fake_tmux, proj):
+    prompt = 'say "hi"; echo $HOME'
+    assert spawn.run("claude", str(proj), "reviewer", prompt,
+                     ["--model", "custom model"], lean=True) == 0
+    assert shlex.split(fake_tmux.new_session()[-1]) == [
+        "CXPEER_PEER_NAME=reviewer", "claude", "-n", "reviewer",
+        "--strict-mcp-config", "--mcp-config", "", "--disable-slash-commands",
+        "--model", "custom model", prompt,
+    ]
+
+
 def test_duplicate_session_is_refused(fake_tmux, proj, capsys):
     assert spawn.run("codex", str(proj), "dup", None, []) == 0
     capsys.readouterr()

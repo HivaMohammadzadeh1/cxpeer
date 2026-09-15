@@ -116,7 +116,7 @@ def _cmd_spawn(args: argparse.Namespace) -> int:
     extra = args.extra[1:] if args.extra[:1] == ["--"] else args.extra
     return spawn.run(args.kind, args.cwd, args.name, args.prompt, extra,
                      peer_name=args.peer_name, wait=args.wait, timeout=args.timeout,
-                     codex_home=str(_codex_home(args)) if args.codex_home else None)
+                     codex_home=str(_codex_home(args)) if args.codex_home else None, lean=args.lean)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -163,6 +163,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="answer Codex's startup prompts and wait until the peer is registered")
     p_spawn.add_argument("--timeout", type=float, default=60.0, help="seconds --wait allows (default 60)")
     p_spawn.add_argument("--codex-home", help="start codex with this CODEX_HOME (a second Codex account)")
+    p_spawn.add_argument("--lean", action="store_true",
+                         help="minimize startup context: disable MCP servers and, for claude, slash commands")
     p_spawn.add_argument("extra", nargs="*", help="extra args after --, passed to codex/claude verbatim")
     p_spawn.set_defaults(func=_cmd_spawn)
 

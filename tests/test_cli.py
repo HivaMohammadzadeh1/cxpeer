@@ -75,7 +75,7 @@ def test_status_reports_unreachable_bridge(isolated_env, capsys):
 
 def test_spawn_forwards_extra_args_after_double_dash(monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli.spawn, "run", lambda kind, cwd, name, prompt, extra, peer_name=None, wait=False, timeout=60.0, codex_home=None: seen.update(
+    monkeypatch.setattr(cli.spawn, "run", lambda kind, cwd, name, prompt, extra, peer_name=None, wait=False, timeout=60.0, codex_home=None, lean=False: seen.update(
         kind=kind, cwd=cwd, name=name, prompt=prompt, extra=extra, peer_name=peer_name, wait=wait, timeout=timeout) or 0)
     assert cli.main(["spawn", "claude", "--cwd", "/p", "--name", "intern", "--prompt", "hi there",
                      "--", "--permission-mode", "auto"]) == 0
@@ -85,10 +85,19 @@ def test_spawn_forwards_extra_args_after_double_dash(monkeypatch):
 
 def test_spawn_forwards_wait_and_peer_name(monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli.spawn, "run", lambda kind, cwd, name, prompt, extra, peer_name=None, wait=False, timeout=60.0, codex_home=None: seen.update(
+    monkeypatch.setattr(cli.spawn, "run", lambda kind, cwd, name, prompt, extra, peer_name=None, wait=False, timeout=60.0, codex_home=None, lean=False: seen.update(
         peer_name=peer_name, wait=wait, timeout=timeout, codex_home=codex_home) or 0)
     assert cli.main(["spawn", "codex", "--peer-name", "codex-tests", "--wait", "--timeout", "90", "--codex-home", "/tmp/cx-home"]) == 0
     assert seen == {"peer_name": "codex-tests", "wait": True, "timeout": 90.0, "codex_home": "/tmp/cx-home"}
+
+
+def test_spawn_forwards_lean(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli.spawn, "run", lambda *args, **kwargs: seen.update(kwargs) or 0)
+    assert cli.main(["spawn", "codex", "--lean"]) == 0
+    assert seen["lean"] is True
+    assert cli.main(["spawn", "codex"]) == 0
+    assert seen["lean"] is False
 
 
 def test_list_sandboxed_reads_snapshot(monkeypatch, capsys):

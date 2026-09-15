@@ -33,7 +33,7 @@ def tmux_bin() -> str:
 
 def run(kind: str, cwd: str, name: str | None, prompt: str | None, extra_args: list[str],
         peer_name: str | None = None, wait: bool = False, timeout: float = 60.0,
-        codex_home: str | None = None) -> int:
+        codex_home: str | None = None, lean: bool = False) -> int:
     if kind not in KINDS:
         print(f"cxpeer spawn: unknown kind {kind!r} (expected codex or claude)", file=sys.stderr)
         return 2
@@ -48,7 +48,7 @@ def run(kind: str, cwd: str, name: str | None, prompt: str | None, extra_args: l
         if _tmux(tmux, "has-session", "-t", session).returncode == 0:
             print(f"cxpeer spawn: tmux session {session!r} already exists", file=sys.stderr)
             return 1
-        command = shlex.join(_command(kind, name or session, prompt, extra_args))
+        command = shlex.join(_command(kind, name or session, prompt, extra_args, lean=lean))
         if peer_name:
             command = f"CXPEER_PEER_NAME={shlex.quote(peer_name)} {command}"
         if codex_home and kind == "codex":  # a second Codex account: its own auth, config, hooks, queue
@@ -69,8 +69,12 @@ def run(kind: str, cwd: str, name: str | None, prompt: str | None, extra_args: l
         return 1
 
 
-def _command(kind: str, claude_name: str, prompt: str | None, extra_args: list[str]) -> list[str]:
+def _command(kind: str, claude_name: str, prompt: str | None, extra_args: list[str],
+             lean: bool = False) -> list[str]:
     argv = ["codex"] if kind == "codex" else ["claude", "-n", claude_name]
+    if lean:
+        argv += (["-c", "mcp_servers={}"] if kind == "codex" else
+                 ["--strict-mcp-config", "--mcp-config", "", "--disable-slash-commands"])
     argv += list(extra_args)
     if prompt is not None:
         argv.append(prompt)
