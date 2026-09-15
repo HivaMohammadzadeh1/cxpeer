@@ -1,0 +1,31 @@
+name: Bug report
+description: Something in cxpeer does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `cxpeer doctor`
+      description: Paste the full output. It shows the versions, the hook state, the trust state, and the self-test result.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: cxpeer, Codex CLI, Claude Code, and the OS, if `cxpeer doctor` did not print them.
+      placeholder: cxpeer 0.4.0, codex 0.153.3, claude 2.1.263, macOS 15.5
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: From `~/.cxpeer/logs/hooks.log` or `~/.cxpeer/logs/<thread>.log`. Redact peer tokens.
+      render: shell
