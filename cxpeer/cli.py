@@ -8,7 +8,7 @@ import sys
 
 from pathlib import Path
 
-from cxpeer import bridge, client, doctor, hooks, install, paths, registry, spawn
+from cxpeer import bridge, client, context, doctor, hooks, install, paths, registry, spawn
 
 HOOK_EVENTS = ("session-start", "user-prompt-submit", "stop", "interrupt", "session-end")
 
@@ -16,9 +16,10 @@ HOOK_EVENTS = ("session-start", "user-prompt-submit", "stop", "interrupt", "sess
 def _cmd_list(args: argparse.Namespace) -> int:
     if client.sandboxed():
         return _list_from_snapshot()
+    threads = {b.sock: b.thread for b in client.list_bridges()}
     for p in registry.list_peers():
         if p.alive:
-            print(f"{p.name} [{p.ref}]  {p.status}  {p.cwd}")
+            print(f"{p.name} [{p.ref}]  {p.status}  {context.fmt(context.for_peer(p, threads))}  {p.cwd}")
     return 0
 
 
@@ -81,7 +82,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
                 state += f"  in={info['chars_in']}c(~{info['chars_in'] // 4}t)  out={info['chars_out']}c(~{info['chars_out'] // 4}t)"
         except (OSError, RuntimeError) as e:
             state = f"unreachable ({e})"
-        print(f"{b.name}  pid={b.pid}  thread={b.thread}  {state}  {b.cwd}")
+        print(f"{b.name}  pid={b.pid}  thread={b.thread}  {state}  {context.fmt(context.codex_context(b.thread))}  {b.cwd}")
     return 0
 
 

@@ -35,6 +35,8 @@ class Peer:
     status: str
     kind: str
     alive: bool
+    session_id: str = ""   # Claude's sessionId, which names its transcript
+    home: str = ""         # the config home whose registry this record came from
 
 
 def _now_ms() -> int:
@@ -192,6 +194,8 @@ def list_peers() -> list[Peer]:
                     status=rec.get("status") or "idle",
                     kind=rec.get("kind") or "interactive",
                     alive=alive,
+                    session_id=str(rec.get("sessionId") or ""),
+                    home=str(d.parent),
                 )
             )
     return peers

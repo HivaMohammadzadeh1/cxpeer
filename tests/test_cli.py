@@ -152,3 +152,13 @@ def test_status_shows_chars_in_and_out(isolated_env, monkeypatch, capsys):
     assert cli.main(["status"]) == 0
     out = capsys.readouterr().out
     assert "in=400c(~100t)" in out and "out=1200c(~300t)" in out
+
+
+def test_list_prints_a_context_column(isolated_env, monkeypatch, capsys):
+    from cxpeer import context, registry
+    peer = registry.Peer(name="claude-a", ref="r", pid=1, sock="/tmp/a.sock", cwd="/p", status="idle",
+                         kind="interactive", alive=True, session_id="sid", home="/h")
+    monkeypatch.setattr(registry, "list_peers", lambda: [peer])
+    monkeypatch.setattr(context, "for_peer", lambda p, threads: context.ContextInfo(163_000, None, 3, "t"))
+    assert cli.main(["list"]) == 0
+    assert capsys.readouterr().out == "claude-a [r]  idle  ctx=163k  /p\n"
