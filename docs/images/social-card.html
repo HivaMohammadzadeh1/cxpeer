@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><title>card</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&family=Kalam:wght@700&display=swap">
+<style>
+body{margin:0;background:#F4F6F2;font-family:"Atkinson Hyperlegible",system-ui,sans-serif;color:#171B1F}
+.card{width:1280px;height:640px;position:relative;overflow:hidden;background:#F4F6F2}
+.grid{position:absolute;inset:0;background-image:linear-gradient(#e6eae3 1px,transparent 1px),linear-gradient(90deg,#e6eae3 1px,transparent 1px);background-size:40px 40px;opacity:.7}
+.logo{position:absolute;left:72px;top:64px;width:420px}
+h1{position:absolute;left:72px;top:210px;margin:0;font-family:"Bricolage Grotesque",sans-serif;font-size:64px;line-height:1.02;letter-spacing:-0.02em;width:760px}
+p{position:absolute;left:72px;top:400px;margin:0;font-size:26px;line-height:1.35;width:700px;color:#3a434b}
+.hand{position:absolute;right:80px;top:92px;font-family:"Kalam",cursive;font-size:24px;color:#5F6A73;transform:rotate(-4deg)}
+.loop{position:absolute;right:90px;top:150px;width:360px;height:300px}
+.foot{position:absolute;left:72px;bottom:44px;font-family:"JetBrains Mono",monospace;font-size:20px;color:#5F6A73}
+.pill{position:absolute;right:72px;bottom:44px;font-family:"JetBrains Mono",monospace;font-size:18px;color:#0B7A63;border:2px solid #0B7A63;border-radius:999px;padding:8px 16px}
+</style></head><body><div class="card"><div class="grid"></div>
+<img class="logo" src="cxpeer-logo-light.png" alt="">
+<h1>Codex CLI sessions as Claude Code peers.</h1>
+<p>Send a task from Claude Code, Codex does it in its own context, the answer comes back when the turn ends. No daemon, no polling.</p>
+<div class="hand">8 s round trip, live TUI</div>
+<svg class="loop" viewBox="0 0 360 300" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="20" y="40" width="130" height="64" rx="4" stroke="#4A43B5" stroke-width="3" fill="#E7E5F8"/>
+  <text x="85" y="79" text-anchor="middle" font-family="Kalam" font-size="22" font-weight="700" fill="#4A43B5">Claude</text>
+  <rect x="210" y="40" width="130" height="64" rx="4" stroke="#0B7A63" stroke-width="3" fill="#DDF2EC"/>
+  <text x="275" y="79" text-anchor="middle" font-family="Kalam" font-size="22" font-weight="700" fill="#0B7A63">Codex</text>
+  <rect x="115" y="190" width="130" height="64" rx="4" stroke="#7a828c" stroke-width="3" fill="#fff"/>
+  <text x="180" y="229" text-anchor="middle" font-family="Kalam" font-size="20" font-weight="700" fill="#171B1F">bridge</text>
+  <path d="M150 62 C 175 40, 195 40, 210 62" stroke="#B86E00" stroke-width="3"/>
+  <path d="M203 56 L210 62 L202 66" stroke="#B86E00" stroke-width="3"/>
+  <path d="M215 104 C 230 150, 220 170, 245 190" stroke="#0B7A63" stroke-width="3"/>
+  <path d="M236 186 L245 190 L244 180" stroke="#0B7A63" stroke-width="3"/>
+  <path d="M115 222 C 60 210, 50 150, 75 104" stroke="#4A43B5" stroke-width="3"/>
+  <path d="M68 112 L75 104 L80 113" stroke="#4A43B5" stroke-width="3"/>
+  <text x="180" y="30" text-anchor="middle" font-family="Kalam" font-size="17" fill="#B86E00">SendMessage</text>
+  <text x="260" y="158" font-family="Kalam" font-size="17" fill="#0B7A63">Stop hook</text>
+  <text x="10" y="165" font-family="Kalam" font-size="17" fill="#4A43B5">answer</text>
+</svg>
+<div class="foot">github.com/HivaMohammadzadeh1/cxpeer</div>
+<div class="pill">uv tool install cxpeer</div>
+</div></body></html>

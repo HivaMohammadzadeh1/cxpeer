@@ -218,7 +218,7 @@ def test_list_prints_only_alive(isolated_env, monkeypatch, capsys):
     ]
     monkeypatch.setattr(registry, "list_peers", lambda: peers)
     assert cli.main(["list"]) == 0
-    assert capsys.readouterr().out.splitlines() == ["codex-a [abc123]  idle  /work/a"]
+    assert capsys.readouterr().out.splitlines() == ["codex-a [abc123]  idle  ctx=?  /work/a"]
 
 
 def test_cli_send_via_bridge(isolated_env, monkeypatch):
