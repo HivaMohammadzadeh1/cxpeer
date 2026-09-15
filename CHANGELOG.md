@@ -11,7 +11,7 @@ can change the CLI and the wire protocol.
 
 ### Added
 - A context meter. `cxpeer list` shows each peer's last prompt size (`ctx=22k/258k (8%)` for Codex, `ctx=163k` for Claude), read from the tail of the transcripts both tools already write; `cxpeer status` shows it per bridge. A `!` marks a Codex peer past 70% of its window.
-- `cxpeer spawn --lean` starts Codex with `-c mcp_servers={}` and Claude with `--strict-mcp-config --mcp-config "" --disable-slash-commands`. Both still register as peers; `--bare` does not. A trivial lean Codex turn costs about 3.7k tokens instead of 15k.
+- `cxpeer spawn --lean` starts Codex with `-c mcp_servers={}` and Claude with `--strict-mcp-config --mcp-config "" --disable-slash-commands`. Both still register as peers; `--bare` does not. Measured first turn: Claude 49.6k tokens normal vs 45.8k lean; Codex 17.5k vs 17.4k, since Codex's floor is its built-in prompt.
 - A landing page at https://hivam.org/cxpeer/ (GitHub Pages from `docs/`), a social preview card, and a draft write-up of the peer protocol in `docs/blog/`.
 - CHANGELOG, ROADMAP, CONTRIBUTING refresh, issue and pull request templates, repository topics, and GitHub Discussions.
 

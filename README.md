@@ -28,7 +28,7 @@ Codex sessions as peers in Claude Code's cross-session messaging
 
 ## Latest news
 
-- [2026-09-15] v0.5.0: a context meter and lean peers. `cxpeer list` shows every peer's live prompt size from the transcripts both tools write; `cxpeer spawn --lean` starts a Codex or Claude peer without MCP servers (3.7k tokens for a trivial Codex turn instead of 15k). Landing page at [hivam.org/cxpeer](https://hivam.org/cxpeer/), write-up on the protocol in [docs/blog](docs/blog/how-claude-code-peers-work.md).
+- [2026-09-15] v0.5.0: a context meter and lean peers. `cxpeer list` shows every peer's live prompt size from the transcripts both tools write; `cxpeer spawn --lean` starts a Codex or Claude peer without MCP servers, and the README now carries measured first-turn sizes for both. Landing page at [hivam.org/cxpeer](https://hivam.org/cxpeer/), write-up on the protocol in [docs/blog](docs/blog/how-claude-code-peers-work.md).
 - [2026-09-10] v0.4.0: context budget. A peer message costs Codex about 17 tokens of framing instead of 87, long answers are capped with the full text one `cxpeer read` away, and both skills are a third of their old size. Numbers in [Context budget](#context-budget). Run `cxpeer install` again to get the new Codex skill.
 - [2026-09-07] v0.3.0: several Claude accounts (every `~/.claude*` registry) and several Codex accounts (`--codex-home`) on one machine, with a [recorded run](docs/user-journey-accounts.md).
 - [2026-09-07] A recorded [user journey](docs/user-journey.md): install check, spawn a Codex peer, give it a task, have it message back from inside its sandbox. 41 seconds end to end.
@@ -199,7 +199,14 @@ codex-ctx [c6aeb4]  busy  ctx=22k/258k (8%)  /Users/me/proj
 hivamoh-7c [970409]  idle  ctx=291k  /Users/me
 ```
 
-A Codex session with the usual MCP servers starts around 15k tokens; `cxpeer spawn codex --lean` starts one without them, and a trivial turn costs 3.7k. Use lean peers for the heavy work and keep only their summaries in the session you are driving.
+Measured first-turn prompt sizes on one machine (9 Claude MCP servers, 3 Codex MCP servers), from the same transcripts the meter reads:
+
+| Peer | First turn, normal | First turn, `--lean` |
+| --- | --- | --- |
+| Claude Code | 49.6k tokens | 45.8k tokens |
+| Codex TUI | 17.5k tokens | 17.4k tokens |
+
+`--lean` removes MCP servers and, for Claude, slash commands. It saves a few thousand tokens per turn on a Claude peer with many MCP servers and almost nothing on Codex, whose floor is its built-in prompt. The larger lever is what the meter makes visible: a long session re-sends its whole thread on every turn, so keep the session you drive short and let peers carry the heavy work.
 
 ## Multiple accounts
 

@@ -131,7 +131,7 @@ cxpeer doctor         # 10 checks and a live self-test</code></pre>
   <div class="strip">
     <div class="tile codex"><div class="n">8 s</div><div class="l">Claude → Codex → Claude round trip, measured on a live TUI</div></div>
     <div class="tile claude"><div class="n">71</div><div class="l">characters of framing per message after the first one, about 17 tokens</div></div>
-    <div class="tile flight"><div class="n">3.7k</div><div class="l">tokens for a trivial turn on a lean Codex peer, instead of 15k</div></div>
+    <div class="tile flight"><div class="n">199</div><div class="l">tests across the registry, wire, bridge, hooks, spawn, and CLI; macOS and Linux CI</div></div>
     <div class="tile"><div class="n">0</div><div class="l">daemons, polling loops, or cloud services. Three files, one Unix socket, Codex's own hooks.</div></div>
   </div>
 
@@ -185,7 +185,7 @@ cxpeer doctor         # 10 checks and a live self-test</code></pre>
   </table>
   </div>
   <section class="prose">
-    <p>The larger cost is the per-turn context of each session. A Codex session with the usual MCP servers starts at about 15k tokens; <code>cxpeer spawn codex --lean</code> starts one without them, and a trivial turn costs 3.7k. The same flag starts a Claude peer with MCP servers and slash commands disabled while keeping it a peer.</p>
+    <p>The larger cost is the per-turn context of each session, because every message wakes a turn and a turn re-sends the whole thread. Measured first turns of freshly spawned peers: Claude 49.6k tokens, 45.8k with <code>--lean</code>; Codex 17.5k, 17.4k lean. <code>cxpeer spawn --lean</code> drops MCP servers and slash commands while keeping the session a peer. The real saving is structural: a worker peer does one task and stays small, and the session you drive keeps only the summaries.</p>
   </section>
 
   <section class="prose">
